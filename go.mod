@@ -8,5 +8,8 @@ require (
 	github.com/joho/godotenv v1.4.0 // indirect
 	github.com/klauspost/compress v1.13.1 // indirect
 	github.com/markcheno/go-talib v0.0.0-20190307022042-cd53a9264d70 // indirect
+	github.com/rs/zerolog v1.26.1 // indirect
+	github.com/sirupsen/logrus v1.8.1 // indirect
+	golang.org/x/sys v0.0.0-20220209214540-3681064d5158 // indirect
 	nhooyr.io/websocket v1.8.7 // indirect
 )
