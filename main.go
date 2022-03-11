@@ -1,6 +1,8 @@
 package main
 
 import (
+	"hermes/pair"
+
 	"context"
 	"fmt"
 	"math"
@@ -62,9 +64,10 @@ func fetchSymbols(wg sync.WaitGroup, futuresClient *futures.Client) map[string]s
 		panic(err)
 	}
 
-	// Filter unwanted symbols (non-USDT, quarterlies, indexes, and unactive)
+	// Filter unwanted symbols (non-USDT, quarterlies, indexes, unactive, and 1000BTTC)
 	for _, asset := range exchangeInfo.Symbols {
-		if asset.QuoteAsset == "USDT" && asset.ContractType == "PERPETUAL" && asset.UnderlyingType == "COIN" && asset.Status == "TRADING" {
+		if asset.QuoteAsset == "USDT" && asset.ContractType == "PERPETUAL" && asset.UnderlyingType == "COIN" &&
+			asset.Status == "TRADING" && asset.BaseAsset != "1000BTTC" {
 			symbol := asset.Symbol
 			symbolIntervalPair[symbol] = INTERVAL
 
@@ -98,35 +101,6 @@ func fetchInitialCloses(symbol string, wg sync.WaitGroup, futuresClient *futures
 	}
 
 	fmt.Printf("💡 %-12s: downloaded %d candles\n", symbol, kline_count)
-}
-
-func calculateEMACross(ema_9 []float64, ema_21 []float64) string {
-	var delta [3]int
-	var sum int
-
-	for i := 0; i < 3; i++ {
-		if ema_9[i] < ema_21[i] {
-			delta[i] = -1
-		} else {
-			delta[i] = 1
-		}
-	}
-
-	for _, v := range delta {
-		sum += v
-	}
-
-	// If all deltas are the same (3 or -3), there can be no cross.
-	if sum%3 != 0 {
-		// Check the cross on the last candle.
-		if delta[2] == 1 {
-			return "bullish"
-		} else if delta[2] == -1 {
-			return "bearish"
-		}
-	}
-
-	return "NA"
 }
 
 func sendTelegramAlert(bot *tgbotapi.BotAPI, symbol string, side string, RSI float64) {
@@ -177,7 +151,7 @@ func main() {
 		}
 	}()
 
-	// TODO: move into dedicated function
+	// TODO: move into dedicated function: need to pass log object
 	wsKlineHandler := func(event *futures.WsKlineEvent) {
 		k := event.Kline
 		symbol := event.Symbol
@@ -214,28 +188,28 @@ func main() {
 			}
 		}
 
-		symbolCloses[symbol] = closes // Update the [global] map
+		symbolCloses[symbol] = closes // Update the global map
 
 		// Round the RSI to 2 digits
-		rsi := math.Round(talib.Rsi(closes, 14)[lastCloseIndex]*100) / 100
-		ema_9, ema_21 := talib.Ema(closes, 9)[lastCloseIndex-2:], talib.Ema(closes, 21)[lastCloseIndex-2:]
+		RSI := math.Round(talib.Rsi(closes, 14)[lastCloseIndex]*100) / 100
+		EMA_09, EMA_21 := talib.Ema(closes, 9)[lastCloseIndex-2:], talib.Ema(closes, 21)[lastCloseIndex-2:]
 
-		// TODO: store pair in Order object
-		EMA_cross := calculateEMACross(ema_9, ema_21)
+		p := pair.New(EMA_09, EMA_21, parsedCandle["Close"], RSI, symbol)
 
 		// Only send alert if there's a cross and we haven't alerted yet.
-		if EMA_cross != "NA" && alerts[symbol] != EMA_cross {
-			sendTelegramAlert(bot, symbol, EMA_cross, rsi)
-			alerts[symbol] = EMA_cross
-		}
+		if p.Bias != "NA" && alerts[symbol] != p.Bias {
+			alerts[symbol] = p.Bias
 
-		log.Info().
-			Float64("Close", parsedCandle["Close"]).
-			Float64("EMA_09", ema_9[2]).
-			Float64("EMA_21", ema_21[2]).
-			Str("EMA_cross", EMA_cross).
-			Float64("RSI", rsi).
-			Msg(symbol[:len(symbol)-4]) // No need to print "USDT"
+			sendTelegramAlert(bot, symbol, p.Bias, RSI)
+
+			log.Info().
+				Float64("Price", p.Price).
+				Float64("EMA_09", EMA_09[2]).
+				Float64("EMA_21", EMA_21[2]).
+				Float64("RSI", RSI).
+				Str("_Cross", p.Bias).
+				Msg(symbol[:len(symbol)-4]) // No need to print "USDT"
+		}
 	}
 
 	errHandler := func(err error) { log.Fatal().Msg(err.Error()) }
@@ -248,7 +222,6 @@ func main() {
 	log.Info().Int("count", len(symbols)).Msg("🪙 Fetched symbols")
 
 	doneC, _, err := futures.WsCombinedKlineServe(symbols, wsKlineHandler, errHandler)
-
 	if err != nil {
 		log.Fatal().Msg(err.Error())
 	}
