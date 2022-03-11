@@ -21,19 +21,15 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const ID int64 = 445996511
 const INTERVAL string = "1m"
 const LIMIT int = 200
 
+var apiKey, secretKey, telegramToken string
 var bot *tgbotapi.BotAPI
+var chatID int64
 
 var alerts = make(map[string]string)          // {"BTCUSDT": "bullish|bearish", ...}
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
-
-var emoji = map[string]string{
-	"bullish": "🐗",
-	"bearish": "🐻",
-}
 
 func initLogging() zerolog.Logger {
 	zerolog.TimeFieldFormat = time.RFC3339Nano // time.RFC3339, time.RFC822, zerolog.TimeFormatUnix
@@ -46,14 +42,24 @@ func initLogging() zerolog.Logger {
 	return zerolog.New(output).With().Timestamp().Logger()
 }
 
-func loadEnvFile() (string, string, string) {
-	err := godotenv.Load()
+func loadEnvFile() {
+	var err error
+
+	err = godotenv.Load()
 
 	if err != nil {
-		panic("Error loading .env file")
+		fmt.Println("Error loading .env file:", err)
+		os.Exit(1)
 	}
 
-	return os.Getenv("BINANCE_APIKEY"), os.Getenv("BINANCE_SECRETKEY"), os.Getenv("TELEGRAM_APITOKEN")
+	apiKey, secretKey = os.Getenv("BINANCE_APIKEY"), os.Getenv("BINANCE_SECRETKEY")
+	telegramToken = os.Getenv("TELEGRAM_APITOKEN")
+
+	chatID, err = strconv.ParseInt(os.Getenv("TELEGRAM_CHATID"), 10, 64)
+	if err != nil {
+		fmt.Println("Error parsing TELEGRAM_CHATID:", err)
+		os.Exit(1)
+	}
 }
 
 func fetchSymbols(wg sync.WaitGroup, futuresClient *futures.Client) map[string]string {
@@ -103,15 +109,15 @@ func fetchInitialCloses(symbol string, wg sync.WaitGroup, futuresClient *futures
 	fmt.Printf("💡 %-12s: downloaded %d candles\n", symbol, kline_count)
 }
 
-func sendTelegramAlert(bot *tgbotapi.BotAPI, symbol string, side string, RSI float64) {
+func sendTelegramAlert(bot *tgbotapi.BotAPI, p *pair.Pair) {
 	text := fmt.Sprintf("%s *%s*: %s cross ⚡️\n"+
 		"    — RSI: %.2f",
-		emoji[side], symbol[:len(symbol)-4], side, RSI,
+		pair.Emoji[p.Bias], p.Symbol, p.Bias, p.RSI,
 	)
 
 	msg := tgbotapi.MessageConfig{
 		BaseChat: tgbotapi.BaseChat{
-			ChatID: ID,
+			ChatID: chatID,
 		},
 		Text:      text,
 		ParseMode: tgbotapi.ModeMarkdown,
@@ -123,13 +129,12 @@ func sendTelegramAlert(bot *tgbotapi.BotAPI, symbol string, side string, RSI flo
 }
 
 func main() {
-	// Used for building initial candles cache async & quickly
 	var err error
 	var wg sync.WaitGroup
 
 	log := initLogging()
 
-	apiKey, secretKey, telegramToken := loadEnvFile()
+	loadEnvFile()
 
 	bot, err = tgbotapi.NewBotAPI(telegramToken)
 	if err != nil {
@@ -190,9 +195,13 @@ func main() {
 
 		symbolCloses[symbol] = closes // Update the global map
 
-		// Round the RSI to 2 digits
+		EMA_09 := talib.Ema(closes, 9)[lastCloseIndex-2:]
+		EMA_21 := talib.Ema(closes, 21)[lastCloseIndex-2:]
+		EMA_100 := talib.Ema(closes, 100)[lastCloseIndex]
+		EMA_200 := talib.Ema(closes, 200)[lastCloseIndex]
+
+		// Round to 2 digits.
 		RSI := math.Round(talib.Rsi(closes, 14)[lastCloseIndex]*100) / 100
-		EMA_09, EMA_21 := talib.Ema(closes, 9)[lastCloseIndex-2:], talib.Ema(closes, 21)[lastCloseIndex-2:]
 
 		p := pair.New(EMA_09, EMA_21, parsedCandle["Close"], RSI, symbol)
 
@@ -200,12 +209,15 @@ func main() {
 		if p.Bias != "NA" && alerts[symbol] != p.Bias {
 			alerts[symbol] = p.Bias
 
-			sendTelegramAlert(bot, symbol, p.Bias, RSI)
+			// sendTelegramAlert(bot, symbol, p.Bias, RSI)
+			sendTelegramAlert(bot, &p)
 
 			log.Info().
 				Float64("Price", p.Price).
 				Float64("EMA_09", EMA_09[2]).
 				Float64("EMA_21", EMA_21[2]).
+				Float64("EMA_100", EMA_100).
+				Float64("EMA_200", EMA_200).
 				Float64("RSI", RSI).
 				Str("_Cross", p.Bias).
 				Msg(symbol[:len(symbol)-4]) // No need to print "USDT"
@@ -226,7 +238,7 @@ func main() {
 		log.Fatal().Msg(err.Error())
 	}
 
-	log.Debug().Msg("🔌 Socket initialised")
+	log.Debug().Msg("🔌 WebSocket initialised")
 
 	<-doneC
 }
