@@ -67,7 +67,8 @@ func fetchSymbols(wg sync.WaitGroup, futuresClient *futures.Client) map[string]s
 
 	exchangeInfo, err := futuresClient.NewExchangeInfoService().Do(context.Background())
 	if err != nil {
-		panic(err)
+		fmt.Println("Crashed getting exchange info:", err)
+		os.Exit(1)
 	}
 
 	// Filter unwanted symbols (non-USDT, quarterlies, indexes, unactive, and 1000BTTC)
@@ -79,25 +80,25 @@ func fetchSymbols(wg sync.WaitGroup, futuresClient *futures.Client) map[string]s
 
 			wg.Add(1)
 
-			go fetchInitialCloses(symbol, wg, futuresClient)
+			go fetchInitialCloses(futuresClient, symbol, wg)
 		}
 	}
 
 	return symbolIntervalPair
 }
 
-func fetchInitialCloses(symbol string, wg sync.WaitGroup, futuresClient *futures.Client) {
+func fetchInitialCloses(futuresClient *futures.Client, symbol string, wg sync.WaitGroup) {
 	defer wg.Done()
 
 	klines, err := futuresClient.NewKlinesService().
 		Symbol(symbol).Interval(INTERVAL).Limit(LIMIT).
 		Do(context.Background())
-
 	if err != nil {
-		panic(err)
+		fmt.Println("Crashed fetching klines:", err)
+		os.Exit(1)
 	}
 
-	// NOTE: can't use limit because asset may be too new (num of candles < 200)
+	// NOTE: we don't use LIMIT because asset may be too new, so len(klines) < 200
 	kline_count := len(klines)
 
 	for i := 0; i < kline_count; i++ {
@@ -123,8 +124,10 @@ func sendTelegramAlert(bot *tgbotapi.BotAPI, p *pair.Pair) {
 		ParseMode: tgbotapi.ModeMarkdown,
 	}
 
+	// NOTE: may want to continue running instead of doing os.Exit()
 	if _, err := bot.Send(msg); err != nil {
-		panic(err)
+		fmt.Println("Crashed sending Telegram alert:", err)
+		os.Exit(1)
 	}
 }
 
@@ -145,7 +148,7 @@ func main() {
 
 	symbols := fetchSymbols(wg, futuresClient)
 
-	// Handle CTRL-C (may want to print something)
+	// Handle CTRL-C (may want to do something on exit)
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
@@ -158,8 +161,7 @@ func main() {
 
 	// TODO: move into dedicated function: need to pass log object
 	wsKlineHandler := func(event *futures.WsKlineEvent) {
-		k := event.Kline
-		symbol := event.Symbol
+		k, symbol := event.Kline, event.Symbol
 
 		parsedCandle := make(map[string]float64)
 		rawCandle := map[string]string{
@@ -209,7 +211,6 @@ func main() {
 		if p.Bias != "NA" && alerts[symbol] != p.Bias {
 			alerts[symbol] = p.Bias
 
-			// sendTelegramAlert(bot, symbol, p.Bias, RSI)
 			sendTelegramAlert(bot, &p)
 
 			log.Info().
@@ -220,7 +221,7 @@ func main() {
 				Float64("EMA_200", EMA_200).
 				Float64("RSI", RSI).
 				Str("_Cross", p.Bias).
-				Msg(symbol[:len(symbol)-4]) // No need to print "USDT"
+				Msg(p.Symbol)
 		}
 	}
 

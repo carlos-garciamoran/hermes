@@ -1,7 +1,7 @@
 package pair
 
 type Pair struct {
-	Bias   string // "bullish", "bearish"
+	Bias   string
 	EMA_09 []float64
 	EMA_21 []float64
 	Price  float64
@@ -9,7 +9,7 @@ type Pair struct {
 	Symbol string
 }
 
-// Bias constants.
+// Constant values for Bias.
 const (
 	NA      = "NA"
 	BULLISH = "bullish"
@@ -27,7 +27,7 @@ func New(EMA_09 []float64, EMA_21 []float64, price float64, RSI float64, symbol 
 		EMA_21: EMA_21,
 		Price:  price,
 		RSI:    RSI,
-		Symbol: symbol,
+		Symbol: symbol[:len(symbol)-4], // Trim "USDT" suffix
 	}
 
 	p.calculateEMACross()
@@ -36,9 +36,9 @@ func New(EMA_09 []float64, EMA_21 []float64, price float64, RSI float64, symbol 
 }
 
 func (p *Pair) calculateEMACross() {
+	var bias string = NA
 	var delta [3]int
 	var sum int
-	var bias string = NA
 
 	for i := 0; i < 3; i++ {
 		if p.EMA_09[i] < p.EMA_21[i] {
@@ -52,7 +52,7 @@ func (p *Pair) calculateEMACross() {
 		sum += v
 	}
 
-	// If all deltas are the same (3 or -3), there can be no cross.
+	// If all deltas are the same ([1,1,1] or [-1,-1,-1]), there can be no cross.
 	if sum%3 != 0 {
 		// Check the cross on the last candle.
 		if delta[2] == 1 {
