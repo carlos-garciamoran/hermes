@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"os/signal"
 	"strconv"
@@ -23,6 +24,8 @@ const INTERVAL string = "1m"
 const LIMIT int = 200
 
 var bot *tgbotapi.BotAPI
+
+var alerts = make(map[string]string)          // {"BTCUSDT": "bullish|bearish", ...}
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
 
 var emoji = map[string]string{
@@ -97,7 +100,7 @@ func fetchInitialCloses(symbol string, wg sync.WaitGroup, futuresClient *futures
 	fmt.Printf("💡 %-12s: downloaded %d candles\n", symbol, kline_count)
 }
 
-func calculate_EMA_cross(ema_9 []float64, ema_21 []float64) string {
+func calculateEMACross(ema_9 []float64, ema_21 []float64) string {
 	var delta [3]int
 	var sum int
 
@@ -123,12 +126,12 @@ func calculate_EMA_cross(ema_9 []float64, ema_21 []float64) string {
 		}
 	}
 
-	return "none"
+	return "NA"
 }
 
 func sendTelegramAlert(bot *tgbotapi.BotAPI, symbol string, side string, RSI float64) {
 	text := fmt.Sprintf("%s *%s*: %s cross ⚡️\n"+
-		"    - RSI: %.2f",
+		"    — RSI: %.2f",
 		emoji[side], symbol[:len(symbol)-4], side, RSI,
 	)
 
@@ -158,9 +161,6 @@ func main() {
 	if err != nil {
 		log.Fatal().Msg(err.Error())
 	}
-
-	// NOTE: may want to change on prod
-	bot.Debug = true
 
 	futuresClient := binance.NewFuturesClient(apiKey, secretKey)
 
@@ -216,18 +216,20 @@ func main() {
 
 		symbolCloses[symbol] = closes // Update the [global] map
 
-		rsi := talib.Rsi(closes, 14)[lastCloseIndex]
+		// Round the RSI to 2 digits
+		rsi := math.Round(talib.Rsi(closes, 14)[lastCloseIndex]*100) / 100
 		ema_9, ema_21 := talib.Ema(closes, 9)[lastCloseIndex-2:], talib.Ema(closes, 21)[lastCloseIndex-2:]
 
-		// TODO: store in Order object
-		EMA_cross := calculate_EMA_cross(ema_9, ema_21)
+		// TODO: store pair in Order object
+		EMA_cross := calculateEMACross(ema_9, ema_21)
 
-		if EMA_cross != "none" {
+		// Only send alert if there's a cross and we haven't alerted yet.
+		if EMA_cross != "NA" && alerts[symbol] != EMA_cross {
 			sendTelegramAlert(bot, symbol, EMA_cross, rsi)
+			alerts[symbol] = EMA_cross
 		}
 
 		log.Info().
-			// Int("StartTime", int(k.StartTime/10000)).
 			Float64("Close", parsedCandle["Close"]).
 			Float64("EMA_09", ema_9[2]).
 			Float64("EMA_21", ema_21[2]).
