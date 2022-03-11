@@ -21,7 +21,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const INTERVAL string = "1m"
+const INTERVAL string = "1h"
 const LIMIT int = 200
 
 var apiKey, secretKey, telegramToken string
@@ -62,7 +62,7 @@ func loadEnvFile() {
 	}
 }
 
-func fetchSymbols(wg sync.WaitGroup, futuresClient *futures.Client) map[string]string {
+func fetchSymbols(futuresClient *futures.Client, wg sync.WaitGroup) map[string]string {
 	symbolIntervalPair := make(map[string]string)
 
 	exchangeInfo, err := futuresClient.NewExchangeInfoService().Do(context.Background())
@@ -111,9 +111,20 @@ func fetchInitialCloses(futuresClient *futures.Client, symbol string, wg sync.Wa
 }
 
 func sendTelegramAlert(bot *tgbotapi.BotAPI, p *pair.Pair) {
-	text := fmt.Sprintf("%s *%s*: %s cross ⚡️\n"+
+	text := fmt.Sprintf("⚡️ %s", p.Symbol)
+
+	if p.EMA_Cross != "NA" {
+		text += fmt.Sprintf(" | *%s EMA cross* %s", p.EMA_Cross, pair.Emojis[p.EMA_Cross])
+	}
+
+	if p.RSI_Signal != "NA" {
+		text += fmt.Sprintf(" | *RSI %s* %s", p.RSI_Signal, pair.Emojis[p.RSI_Signal])
+	}
+
+	text += fmt.Sprintf("\n"+
+		"    — EMA trend: _%s_ %s\n"+
 		"    — RSI: %.2f",
-		pair.Emoji[p.Bias], p.Symbol, p.Bias, p.RSI,
+		p.EMA_Trend, pair.Emojis[p.EMA_Trend], p.RSI,
 	)
 
 	msg := tgbotapi.MessageConfig{
@@ -139,6 +150,8 @@ func main() {
 
 	loadEnvFile()
 
+	// TODO: send TELEGRAM MESSAGE WITH SESSION INFO AT STARTUP
+
 	bot, err = tgbotapi.NewBotAPI(telegramToken)
 	if err != nil {
 		log.Fatal().Msg(err.Error())
@@ -146,7 +159,7 @@ func main() {
 
 	futuresClient := binance.NewFuturesClient(apiKey, secretKey)
 
-	symbols := fetchSymbols(wg, futuresClient)
+	symbols := fetchSymbols(futuresClient, wg)
 
 	// Handle CTRL-C (may want to do something on exit)
 	c := make(chan os.Signal, 1)
@@ -197,30 +210,30 @@ func main() {
 
 		symbolCloses[symbol] = closes // Update the global map
 
-		EMA_09 := talib.Ema(closes, 9)[lastCloseIndex-2:]
-		EMA_21 := talib.Ema(closes, 21)[lastCloseIndex-2:]
+		EMA_009 := talib.Ema(closes, 9)[lastCloseIndex-2:]
+		EMA_021 := talib.Ema(closes, 21)[lastCloseIndex-2:]
 		EMA_100 := talib.Ema(closes, 100)[lastCloseIndex]
 		EMA_200 := talib.Ema(closes, 200)[lastCloseIndex]
 
 		// Round to 2 digits.
 		RSI := math.Round(talib.Rsi(closes, 14)[lastCloseIndex]*100) / 100
 
-		p := pair.New(EMA_09, EMA_21, parsedCandle["Close"], RSI, symbol)
+		p := pair.New(EMA_009, EMA_021, EMA_100, EMA_200, parsedCandle["Close"], RSI, symbol)
 
-		// Only send alert if there's a cross and we haven't alerted yet.
-		if p.Bias != "NA" && alerts[symbol] != p.Bias {
-			alerts[symbol] = p.Bias
+		// Only send alert if there's a signal and we haven't alerted yet.
+		if p.Signal_Count >= 1 && alerts[symbol] != p.EMA_Cross {
+			// TODO: store triggered alerts based on signal+symbol, not just symbol.
+			alerts[symbol] = p.EMA_Cross
 
 			sendTelegramAlert(bot, &p)
 
 			log.Info().
+				Str("EMA_Cross", p.EMA_Cross).
+				Str("EMA_Trend", p.EMA_Trend).
 				Float64("Price", p.Price).
-				Float64("EMA_09", EMA_09[2]).
-				Float64("EMA_21", EMA_21[2]).
-				Float64("EMA_100", EMA_100).
-				Float64("EMA_200", EMA_200).
 				Float64("RSI", RSI).
-				Str("_Cross", p.Bias).
+				Str("RSI_Signal", p.RSI_Signal).
+				Uint("Signal_Count", p.Signal_Count).
 				Msg(p.Symbol)
 		}
 	}
