@@ -2,6 +2,7 @@ package main
 
 import (
 	"hermes/pair"
+	"hermes/utils"
 
 	"context"
 	"fmt"
@@ -16,17 +17,14 @@ import (
 	"github.com/adshao/go-binance/v2"
 	"github.com/adshao/go-binance/v2/futures"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/joho/godotenv"
 	"github.com/markcheno/go-talib"
 	"github.com/rs/zerolog"
 )
 
-const INTERVAL string = "1h"
+const INTERVAL string = "1m"
 const LIMIT int = 200
 
-var apiKey, secretKey, telegramToken string
 var bot *tgbotapi.BotAPI
-var chatID int64
 
 var alerts = make(map[string]string)          // {"BTCUSDT": "bullish|bearish", ...}
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
@@ -36,30 +34,10 @@ func initLogging() zerolog.Logger {
 	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339Nano}
 
 	output.FormatLevel = func(i interface{}) string {
-		return strings.ToUpper(fmt.Sprintf("| %-5s|", i))
+		return strings.ToUpper(fmt.Sprintf("|%-5s|", i))
 	}
 
 	return zerolog.New(output).With().Timestamp().Logger()
-}
-
-func loadEnvFile() {
-	var err error
-
-	err = godotenv.Load()
-
-	if err != nil {
-		fmt.Println("Error loading .env file:", err)
-		os.Exit(1)
-	}
-
-	apiKey, secretKey = os.Getenv("BINANCE_APIKEY"), os.Getenv("BINANCE_SECRETKEY")
-	telegramToken = os.Getenv("TELEGRAM_APITOKEN")
-
-	chatID, err = strconv.ParseInt(os.Getenv("TELEGRAM_CHATID"), 10, 64)
-	if err != nil {
-		fmt.Println("Error parsing TELEGRAM_CHATID:", err)
-		os.Exit(1)
-	}
 }
 
 func fetchSymbols(futuresClient *futures.Client, wg sync.WaitGroup) map[string]string {
@@ -110,52 +88,15 @@ func fetchInitialCloses(futuresClient *futures.Client, symbol string, wg sync.Wa
 	fmt.Printf("💡 %-12s: downloaded %d candles\n", symbol, kline_count)
 }
 
-func sendTelegramAlert(bot *tgbotapi.BotAPI, p *pair.Pair) {
-	text := fmt.Sprintf("⚡️ %s", p.Symbol)
-
-	if p.EMA_Cross != "NA" {
-		text += fmt.Sprintf(" | *%s EMA cross* %s", p.EMA_Cross, pair.Emojis[p.EMA_Cross])
-	}
-
-	if p.RSI_Signal != "NA" {
-		text += fmt.Sprintf(" | *RSI %s* %s", p.RSI_Signal, pair.Emojis[p.RSI_Signal])
-	}
-
-	text += fmt.Sprintf("\n"+
-		"    — EMA trend: _%s_ %s\n"+
-		"    — RSI: %.2f",
-		p.EMA_Trend, pair.Emojis[p.EMA_Trend], p.RSI,
-	)
-
-	msg := tgbotapi.MessageConfig{
-		BaseChat: tgbotapi.BaseChat{
-			ChatID: chatID,
-		},
-		Text:      text,
-		ParseMode: tgbotapi.ModeMarkdown,
-	}
-
-	// NOTE: may want to continue running instead of doing os.Exit()
-	if _, err := bot.Send(msg); err != nil {
-		fmt.Println("Crashed sending Telegram alert:", err)
-		os.Exit(1)
-	}
-}
-
 func main() {
 	var err error
 	var wg sync.WaitGroup
 
 	log := initLogging()
 
-	loadEnvFile()
+	apiKey, secretKey := utils.LoadEnvFile()
 
-	// TODO: send TELEGRAM MESSAGE WITH SESSION INFO AT STARTUP
-
-	bot, err = tgbotapi.NewBotAPI(telegramToken)
-	if err != nil {
-		log.Fatal().Msg(err.Error())
-	}
+	utils.NewTelegramBot()
 
 	futuresClient := binance.NewFuturesClient(apiKey, secretKey)
 
@@ -225,7 +166,7 @@ func main() {
 			// TODO: store triggered alerts based on signal+symbol, not just symbol.
 			alerts[symbol] = p.EMA_Cross
 
-			sendTelegramAlert(bot, &p)
+			utils.SendTelegramAlert(&p)
 
 			log.Info().
 				Str("EMA_Cross", p.EMA_Cross).
@@ -253,6 +194,8 @@ func main() {
 	}
 
 	log.Debug().Msg("🔌 WebSocket initialised")
+
+	utils.SendTelegramInit(INTERVAL, len(symbols))
 
 	<-doneC
 }
