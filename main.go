@@ -6,7 +6,6 @@ import (
 
 	"context"
 	"fmt"
-	"math"
 	"os"
 	"os/signal"
 	"strconv"
@@ -16,15 +15,11 @@ import (
 
 	"github.com/adshao/go-binance/v2"
 	"github.com/adshao/go-binance/v2/futures"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/markcheno/go-talib"
 	"github.com/rs/zerolog"
 )
 
 const INTERVAL string = "1m"
 const LIMIT int = 200
-
-var bot *tgbotapi.BotAPI
 
 var alerts = make(map[string]string)          // {"BTCUSDT": "bullish|bearish", ...}
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
@@ -151,15 +146,7 @@ func main() {
 
 		symbolCloses[symbol] = closes // Update the global map
 
-		EMA_009 := talib.Ema(closes, 9)[lastCloseIndex-2:]
-		EMA_021 := talib.Ema(closes, 21)[lastCloseIndex-2:]
-		EMA_100 := talib.Ema(closes, 100)[lastCloseIndex]
-		EMA_200 := talib.Ema(closes, 200)[lastCloseIndex]
-
-		// Round to 2 digits.
-		RSI := math.Round(talib.Rsi(closes, 14)[lastCloseIndex]*100) / 100
-
-		p := pair.New(EMA_009, EMA_021, EMA_100, EMA_200, parsedCandle["Close"], RSI, symbol)
+		p := pair.New(closes, lastCloseIndex, symbol)
 
 		// Only send alert if there's a signal and we haven't alerted yet.
 		if p.Signal_Count >= 1 && alerts[symbol] != p.EMA_Cross {
@@ -170,9 +157,9 @@ func main() {
 
 			log.Info().
 				Str("EMA_Cross", p.EMA_Cross).
-				Str("EMA_Trend", p.EMA_Trend).
+				Str("EMA_Trend", p.Trend).
 				Float64("Price", p.Price).
-				Float64("RSI", RSI).
+				Float64("RSI", p.RSI).
 				Str("RSI_Signal", p.RSI_Signal).
 				Uint("Signal_Count", p.Signal_Count).
 				Msg(p.Symbol)

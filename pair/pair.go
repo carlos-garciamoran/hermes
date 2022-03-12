@@ -1,31 +1,28 @@
 package pair
 
+import (
+	"math"
+
+	"github.com/markcheno/go-talib"
+)
+
 type Pair struct {
 	EMA_009      []float64 // Array to check for cross.
 	EMA_021      []float64 // Array to check for cross.
-	EMA_100      float64   // Float to compare with price.
+	EMA_055      float64   // Float to compare with price.
 	EMA_200      float64   // Float to compare with price.
 	EMA_Cross    string
-	EMA_Trend    string
 	Price        float64
 	RSI          float64
 	RSI_Signal   string
 	Signal_Count uint
 	Symbol       string
+	Trend        string // Based on EMA_055, EMA_200, and Price.
 }
 
 // Constant value for neutral signal (EMA_Trend and RSI_Signal).
 const (
 	NA = "NA"
-)
-
-// Constant values for EMA_Trend.
-const (
-	BULLISH    = "bullish"
-	BULLISH_X2 = "bullish-X2"
-
-	BEARISH    = "bearish"
-	BEARISH_X2 = "bearish-X2"
 )
 
 // Constant values for RSI_Signal.
@@ -37,6 +34,15 @@ const (
 	OVERSOLD    = "oversold"
 	OVERSOLD_X2 = "oversold-X2"
 	OVERSOLD_X3 = "oversold-X3"
+)
+
+// Constant values for Trend.
+const (
+	BULLISH    = "bullish"
+	BULLISH_X2 = "bullish-X2"
+
+	BEARISH    = "bearish"
+	BEARISH_X2 = "bearish-X2"
 )
 
 // ⬆️, ⬇️
@@ -56,20 +62,28 @@ var Emojis = map[string]string{
 	OVERSOLD_X3: "📉📉📉",
 }
 
-func New(
-	EMA_009 []float64, EMA_021 []float64, EMA_100 float64, EMA_200 float64,
-	price float64, RSI float64, symbol string,
-) Pair {
+func New(closes []float64, lastCloseIndex int, symbol string) Pair {
+	EMA_009 := talib.Ema(closes, 9)[lastCloseIndex-2:]
+	EMA_021 := talib.Ema(closes, 21)[lastCloseIndex-2:]
+	EMA_055 := talib.Ema(closes, 55)[lastCloseIndex]
+	EMA_200 := talib.Ema(closes, 200)[lastCloseIndex]
+
+	// Round to 2 digits.
+	RSI := math.Round(talib.Rsi(closes, 14)[lastCloseIndex]*100) / 100
+
 	p := Pair{
 		EMA_009:      EMA_009,
 		EMA_021:      EMA_021,
-		EMA_100:      EMA_100,
+		EMA_055:      EMA_055,
 		EMA_200:      EMA_200,
-		Price:        price,
+		Price:        closes[lastCloseIndex],
 		RSI:          RSI,
 		Signal_Count: 0,
 		Symbol:       symbol[:len(symbol)-4], // Trim "USDT" suffix
 	}
+
+	// TODO: REMEMBER EMAs are LAGGING INDICATORS: they should be used as CONFIRMATION
+	// TODO: check for EMA200[x]close cross (reversal signal)
 
 	p.calculateEMACross()
 
@@ -77,7 +91,7 @@ func New(
 		p.Signal_Count += 1
 	}
 
-	p.EMA_Trend = p.calculateEMATrend()
+	p.Trend = p.calculateTrend()
 
 	p.RSI_Signal = p.evaluateRSI()
 
@@ -119,20 +133,20 @@ func (p *Pair) calculateEMACross() {
 }
 
 // TODO: give margin to evaluation (< 0.15% distance to EMA should be neutral)
-func (p *Pair) calculateEMATrend() string {
-	if p.Price >= p.EMA_100 && p.Price >= p.EMA_200 {
+func (p *Pair) calculateTrend() string {
+	if p.Price >= p.EMA_055 && p.Price >= p.EMA_200 {
 		return BULLISH_X2
 	}
 
-	if p.Price >= p.EMA_100 || p.Price >= p.EMA_200 {
+	if p.Price >= p.EMA_055 || p.Price >= p.EMA_200 {
 		return BULLISH
 	}
 
-	if p.Price < p.EMA_100 && p.Price < p.EMA_200 {
+	if p.Price < p.EMA_055 && p.Price < p.EMA_200 {
 		return BEARISH_X2
 	}
 
-	if p.Price < p.EMA_100 || p.Price < p.EMA_200 {
+	if p.Price < p.EMA_055 || p.Price < p.EMA_200 {
 		return BEARISH
 	}
 

@@ -80,9 +80,9 @@ func SendTelegramAlert(p *pair.Pair) {
 	}
 
 	text += fmt.Sprintf("\n"+
-		"    — EMA trend: _%s_ %s\n"+
+		"    — Trend: _%s_ %s\n"+
 		"    — RSI: %.2f",
-		p.EMA_Trend, pair.Emojis[p.EMA_Trend], p.RSI,
+		p.Trend, pair.Emojis[p.Trend], p.RSI,
 	)
 
 	// NOTE: may want to continue running instead of doing os.Exit()
