@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -18,22 +17,13 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const INTERVAL string = "1m"
+const INTERVAL string = "3m"
 const LIMIT int = 200
+
+var log zerolog.Logger = utils.InitLogging()
 
 var alerts = make(map[string]string)          // {"BTCUSDT": "bullish|bearish", ...}
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
-
-func initLogging() zerolog.Logger {
-	zerolog.TimeFieldFormat = time.RFC3339Nano // time.RFC3339, time.RFC822, zerolog.TimeFormatUnix
-	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339Nano}
-
-	output.FormatLevel = func(i interface{}) string {
-		return strings.ToUpper(fmt.Sprintf("|%-5s|", i))
-	}
-
-	return zerolog.New(output).With().Timestamp().Logger()
-}
 
 func fetchSymbols(futuresClient *futures.Client, wg sync.WaitGroup) map[string]string {
 	symbolIntervalPair := make(map[string]string)
@@ -79,21 +69,77 @@ func fetchInitialCloses(futuresClient *futures.Client, symbol string, wg sync.Wa
 			symbolCloses[symbol] = append(symbolCloses[symbol], close)
 		}
 	}
+}
 
-	fmt.Printf("💡 %-12s: downloaded %d candles\n", symbol, kline_count)
+func wsKlineHandler(event *futures.WsKlineEvent) {
+	k, symbol := event.Kline, event.Symbol
+
+	parsedCandle := make(map[string]float64)
+	rawCandle := map[string]string{
+		"Open":  k.Open,
+		"High":  k.High,
+		"Low":   k.Low,
+		"Close": k.Close,
+	}
+
+	for key, value := range rawCandle {
+		parsedValue, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			log.Fatal().Str(key, value).
+				Msg(fmt.Sprintf("Could not parse %s", key))
+		}
+
+		parsedCandle[key] = parsedValue
+	}
+
+	// NOTE: currently, only closes are updated (there may be TA indicators that use other OHLC values)
+	// HACK: may want to hardcode the length (to find last close) for optimizing performance
+	closes := symbolCloses[symbol]
+	lastCloseIndex := len(symbolCloses[symbol]) - 1
+	closes[lastCloseIndex] = parsedCandle["Close"] // Update the last candle
+
+	// Rotate all candles but the last one (already set above).
+	if k.IsFinal {
+		// i.e., close[0] = close[1], ..., close[199] = parsedCandle["Close"]
+		for i := 0; i < lastCloseIndex; i++ {
+			closes[i] = closes[i+1]
+		}
+	}
+
+	symbolCloses[symbol] = closes // Update the global map
+
+	p := pair.New(closes, lastCloseIndex, symbol)
+
+	// Only send alert if there's a signal, a side, and no alert has been sent.
+	if p.Signal_Count >= 1 && p.Side != pair.NA && alerts[symbol] != p.Side {
+		// TODO: store triggered alerts based on signal+symbol, not just symbol.
+		alerts[symbol] = p.Side
+
+		utils.SendTelegramAlert(&p)
+
+		log.Info().
+			Str("EMA_Cross", p.EMA_Cross).
+			Float64("Price", p.Price).
+			Float64("RSI", p.RSI).
+			Str("RSI_Signal", p.RSI_Signal).
+			Uint("Signal_Count", p.Signal_Count).
+			Str("Trend", p.Trend).
+			Str("Side", p.Side).
+			Msg(p.Symbol)
+	}
 }
 
 func main() {
 	var err error
 	var wg sync.WaitGroup
 
-	log := initLogging()
-
 	apiKey, secretKey := utils.LoadEnvFile()
 
 	utils.NewTelegramBot()
 
 	futuresClient := binance.NewFuturesClient(apiKey, secretKey)
+
+	log.Debug().Msg("💡 Fetching symbols")
 
 	symbols := fetchSymbols(futuresClient, wg)
 
@@ -103,84 +149,27 @@ func main() {
 
 	go func() {
 		for sig := range c {
-			fmt.Println(sig)
+			log.Warn().Str("sig", sig.String()).Msg("Received CTRL-C")
+			close(c)
 			os.Exit(1)
 		}
 	}()
-
-	// TODO: move into dedicated function: need to pass log object
-	wsKlineHandler := func(event *futures.WsKlineEvent) {
-		k, symbol := event.Kline, event.Symbol
-
-		parsedCandle := make(map[string]float64)
-		rawCandle := map[string]string{
-			"Open":  k.Open,
-			"High":  k.High,
-			"Low":   k.Low,
-			"Close": k.Close,
-		}
-
-		for key, value := range rawCandle {
-			parsedValue, err := strconv.ParseFloat(value, 64)
-			if err != nil {
-				log.Fatal().Str(key, value).
-					Msg(fmt.Sprintf("Could not parse %s", key))
-			}
-
-			parsedCandle[key] = parsedValue
-		}
-
-		// NOTE: currently, only closes are updated (there may be TA indicators that use other OHLC values)
-		// HACK: may want to hardcode the length (to find last close) for optimizing performance
-		closes := symbolCloses[symbol]
-		lastCloseIndex := len(symbolCloses[symbol]) - 1
-		closes[lastCloseIndex] = parsedCandle["Close"] // Update the last candle
-
-		// Rotate all candles but the last one (already set above).
-		if k.IsFinal {
-			// i.e., close[0] = close[1], ..., close[199] = parsedCandle["Close"]
-			for i := 0; i < lastCloseIndex; i++ {
-				closes[i] = closes[i+1]
-			}
-		}
-
-		symbolCloses[symbol] = closes // Update the global map
-
-		p := pair.New(closes, lastCloseIndex, symbol)
-
-		// Only send alert if there's a signal and we haven't alerted yet.
-		if p.Signal_Count >= 1 && alerts[symbol] != p.EMA_Cross {
-			// TODO: store triggered alerts based on signal+symbol, not just symbol.
-			alerts[symbol] = p.EMA_Cross
-
-			utils.SendTelegramAlert(&p)
-
-			log.Info().
-				Str("EMA_Cross", p.EMA_Cross).
-				Str("EMA_Trend", p.Trend).
-				Float64("Price", p.Price).
-				Float64("RSI", p.RSI).
-				Str("RSI_Signal", p.RSI_Signal).
-				Uint("Signal_Count", p.Signal_Count).
-				Msg(p.Symbol)
-		}
-	}
-
-	errHandler := func(err error) { log.Fatal().Msg(err.Error()) }
 
 	wg.Wait()
 
 	// TODO: find better way to wait for the cache to be built before starting the WS
 	time.Sleep(2 * time.Second)
 
-	log.Info().Int("count", len(symbols)).Msg("🪙 Fetched symbols")
+	log.Info().Int("count", len(symbols)).Msg("🪙  Fetched symbols")
+
+	errHandler := func(err error) { log.Fatal().Msg(err.Error()) }
 
 	doneC, _, err := futures.WsCombinedKlineServe(symbols, wsKlineHandler, errHandler)
 	if err != nil {
 		log.Fatal().Msg(err.Error())
 	}
 
-	log.Debug().Msg("🔌 WebSocket initialised")
+	log.Debug().Str("interval", INTERVAL).Msg("🔌 WebSocket initialised")
 
 	utils.SendTelegramInit(INTERVAL, len(symbols))
 

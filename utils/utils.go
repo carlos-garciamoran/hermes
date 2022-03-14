@@ -4,11 +4,14 @@ import (
 	"hermes/pair"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 
 	"fmt"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
+	"github.com/rs/zerolog"
 )
 
 var bot *tgbotapi.BotAPI
@@ -23,6 +26,17 @@ func buildMessage(text string) tgbotapi.MessageConfig {
 		Text:      text,
 		ParseMode: tgbotapi.ModeMarkdown,
 	}
+}
+
+func InitLogging() zerolog.Logger {
+	zerolog.TimeFieldFormat = time.RFC3339Nano // time.RFC3339, time.RFC822, zerolog.TimeFormatUnix
+	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339Nano}
+
+	output.FormatLevel = func(i interface{}) string {
+		return strings.ToUpper(fmt.Sprintf("|%-5s|", i))
+	}
+
+	return zerolog.New(output).With().Timestamp().Logger()
 }
 
 func LoadEnvFile() (string, string) {
@@ -58,7 +72,7 @@ func NewTelegramBot() {
 }
 
 func SendTelegramInit(interval string, symbol_count int) {
-	text := "🔔🔔🔔 *NEW SESSION STARTED* 🔔🔔🔔\n\n" +
+	text := "🔔🔔 *NEW SESSION STARTED* 🔔🔔\n\n" +
 		fmt.Sprintf("    ⏱ interval: >>>*%s*<<<\n", interval) +
 		fmt.Sprintf("    🪙 symbols: >>>*%d*<<<", symbol_count)
 
@@ -72,17 +86,18 @@ func SendTelegramAlert(p *pair.Pair) {
 	text := fmt.Sprintf("⚡️ %s", p.Symbol)
 
 	if p.EMA_Cross != "NA" {
-		text += fmt.Sprintf(" | *%s EMA cross* %s", p.EMA_Cross, pair.Emojis[p.EMA_Cross])
+		text += fmt.Sprintf(" | _%s EMA cross_ %s", p.EMA_Cross, pair.Emojis[p.EMA_Cross])
 	}
 
 	if p.RSI_Signal != "NA" {
-		text += fmt.Sprintf(" | *RSI %s* %s", p.RSI_Signal, pair.Emojis[p.RSI_Signal])
+		text += fmt.Sprintf(" | _RSI %s_ %s", p.RSI_Signal, pair.Emojis[p.RSI_Signal])
 	}
 
 	text += fmt.Sprintf("\n"+
 		"    — Trend: _%s_ %s\n"+
-		"    — RSI: %.2f",
-		p.Trend, pair.Emojis[p.Trend], p.RSI,
+		"    — RSI: %.2f\n\n"+
+		"    🔮 Side: *%s* %s",
+		p.Trend, pair.Emojis[p.Trend], p.RSI, p.Side, pair.Emojis[p.Side],
 	)
 
 	// NOTE: may want to continue running instead of doing os.Exit()
