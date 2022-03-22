@@ -5,7 +5,6 @@ import (
 	"hermes/utils"
 
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"strconv"
@@ -30,8 +29,7 @@ func fetchSymbols(futuresClient *futures.Client, wg sync.WaitGroup) map[string]s
 
 	exchangeInfo, err := futuresClient.NewExchangeInfoService().Do(context.Background())
 	if err != nil {
-		fmt.Println("Crashed getting exchange info:", err)
-		os.Exit(1)
+		log.Fatal().Str("err", err.Error()).Msg("Crashed getting exchange info")
 	}
 
 	// Filter unwanted symbols (non-USDT, quarterlies, indexes, unactive, and 1000BTTC)
@@ -57,8 +55,7 @@ func fetchInitialCloses(futuresClient *futures.Client, symbol string, wg sync.Wa
 		Symbol(symbol).Interval(INTERVAL).Limit(LIMIT).
 		Do(context.Background())
 	if err != nil {
-		fmt.Println("Crashed fetching klines:", err)
-		os.Exit(1)
+		log.Fatal().Str("err", err.Error()).Msg("Crashed fetching klines")
 	}
 
 	// NOTE: we don't use LIMIT because asset may be too new, so len(klines) < 200
@@ -85,8 +82,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 	for key, value := range rawCandle {
 		parsedValue, err := strconv.ParseFloat(value, 64)
 		if err != nil {
-			log.Fatal().Str(key, value).
-				Msg(fmt.Sprintf("Could not parse %s", key))
+			log.Fatal().Str(key, value).Msg("Crashed fetching klines")
 		}
 
 		parsedCandle[key] = parsedValue
@@ -133,9 +129,11 @@ func main() {
 	var err error
 	var wg sync.WaitGroup
 
-	apiKey, secretKey := utils.LoadEnvFile()
+	apiKey, secretKey := utils.LoadEnvFile(log)
 
-	utils.NewTelegramBot()
+	// TODO: change to bot instance >>> bot := telegram.NewTelegramBot(log)
+	// bot := telegram.NewTelegramBot(log)
+	utils.NewTelegramBot(log)
 
 	futuresClient := binance.NewFuturesClient(apiKey, secretKey)
 

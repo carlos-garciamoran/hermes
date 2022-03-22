@@ -1,20 +1,18 @@
-package utils
+package telegram
 
 import (
+	"fmt"
 	"hermes/pair"
 	"os"
-	"strconv"
-	"strings"
-	"time"
-
-	"fmt"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 )
 
-var bot *tgbotapi.BotAPI
+type TelegramBot struct {
+	*tgbotapi.BotAPI
+}
+
 var chatID int64
 
 func buildMessage(text string) tgbotapi.MessageConfig {
@@ -27,45 +25,17 @@ func buildMessage(text string) tgbotapi.MessageConfig {
 	}
 }
 
-func InitLogging() zerolog.Logger {
-	zerolog.TimeFieldFormat = time.RFC3339Nano // time.RFC3339, time.RFC822, zerolog.TimeFormatUnix
-	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339Nano}
-
-	output.FormatLevel = func(i interface{}) string {
-		return strings.ToUpper(fmt.Sprintf("|%-5s|", i))
-	}
-
-	return zerolog.New(output).With().Timestamp().Logger()
-}
-
-func LoadEnvFile(log zerolog.Logger) (string, string) {
-	// TODO: remove this declaration in favor of :=
-	var err error
-
-	err = godotenv.Load()
-	if err != nil {
-		log.Fatal().Str("err", err.Error()).Msg("Crashed loading .env file")
-	}
-
-	chatID, err = strconv.ParseInt(os.Getenv("TELEGRAM_CHATID"), 10, 64)
-	if err != nil {
-		log.Fatal().Str("err", err.Error()).Msg("Error parsing TELEGRAM_CHATID")
-	}
-
-	return os.Getenv("BINANCE_APIKEY"), os.Getenv("BINANCE_SECRETKEY")
-}
-
-func NewTelegramBot(log zerolog.Logger) {
-	var err error
-
-	bot, err = tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_APITOKEN"))
+func NewTelegramBot(log zerolog.Logger) *tgbotapi.BotAPI {
+	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_APITOKEN"))
 
 	if err != nil {
 		log.Fatal().Str("err", err.Error()).Msg("Crashed creating Telegram bot")
 	}
+
+	return bot
 }
 
-func SendTelegramInit(interval string, symbol_count int) {
+func (bot *TelegramBot) SendTelegramInit(interval string, symbol_count int) {
 	text := "🔔🔔 *NEW SESSION STARTED* 🔔🔔\n\n" +
 		fmt.Sprintf("    ⏱ interval: >>>*%s*<<<\n", interval) +
 		fmt.Sprintf("    🪙 symbols: >>>*%d*<<<", symbol_count)
@@ -76,7 +46,7 @@ func SendTelegramInit(interval string, symbol_count int) {
 	}
 }
 
-func SendTelegramAlert(p *pair.Pair) {
+func (bot *TelegramBot) SendTelegramAlert(p *pair.Pair) {
 	text := fmt.Sprintf("⚡️ %s", p.Symbol)
 
 	if p.EMA_Cross != "NA" {
