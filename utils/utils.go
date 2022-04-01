@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"hermes/pair"
 	"os"
 	"strconv"
@@ -16,6 +17,13 @@ import (
 
 var bot *tgbotapi.BotAPI
 var chatID int64
+
+type alert struct {
+	Type      string
+	Price     int
+	Condition string
+	Symbol    string
+}
 
 func buildMessage(text string) tgbotapi.MessageConfig {
 	return tgbotapi.MessageConfig{
@@ -36,6 +44,18 @@ func InitLogging() zerolog.Logger {
 	}
 
 	return zerolog.New(output).With().Timestamp().Logger()
+}
+
+func LoadAlerts(log zerolog.Logger) []alert {
+	dat, err := os.ReadFile("./alerts.json")
+	if err != nil {
+		log.Fatal().Msg(err.Error())
+	}
+
+	alerts := []alert{}
+	json.Unmarshal(dat, &alerts)
+
+	return alerts
 }
 
 func LoadEnvFile(log zerolog.Logger) (string, string) {
@@ -65,18 +85,17 @@ func NewTelegramBot(log zerolog.Logger) {
 	}
 }
 
-func SendTelegramInit(interval string, symbol_count int) {
+func SendTelegramInit(interval string, log zerolog.Logger, symbol_count int) {
 	text := "🔔🔔 *NEW SESSION STARTED* 🔔🔔\n\n" +
 		fmt.Sprintf("    ⏱ interval: >>>*%s*<<<\n", interval) +
 		fmt.Sprintf("    🪙 symbols: >>>*%d*<<<", symbol_count)
 
 	if _, err := bot.Send(buildMessage(text)); err != nil {
-		fmt.Println("Crashed sending Telegram init:", err)
-		os.Exit(1)
+		log.Fatal().Str("err", err.Error()).Msg("Crashed sending Telegram init")
 	}
 }
 
-func SendTelegramAlert(p *pair.Pair) {
+func SendTelegramAlert(log zerolog.Logger, p *pair.Pair) {
 	text := fmt.Sprintf("⚡️ %s", p.Symbol)
 
 	if p.EMA_Cross != "NA" {
@@ -96,7 +115,6 @@ func SendTelegramAlert(p *pair.Pair) {
 
 	// NOTE: may want to continue running instead of doing os.Exit()
 	if _, err := bot.Send(buildMessage(text)); err != nil {
-		fmt.Println("Crashed sending Telegram alert:", err)
-		os.Exit(1)
+		log.Fatal().Str("err", err.Error()).Msg("Crashed sending Telegram alert")
 	}
 }

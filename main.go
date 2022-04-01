@@ -1,6 +1,8 @@
 package main
 
 import (
+	"flag"
+	"hermes/order"
 	"hermes/pair"
 	"hermes/utils"
 
@@ -16,15 +18,18 @@ import (
 	"github.com/rs/zerolog"
 )
 
-const INTERVAL string = "3m"
 const LIMIT int = 200
 
 var log zerolog.Logger = utils.InitLogging()
 
-var alerts = make(map[string]string)          // {"BTCUSDT": "bullish|bearish", ...}
+var alertOnSignals *bool
+var futuresClient *futures.Client
+var interval string
+var sentAlerts = make(map[string]string)      // {"BTCUSDT": "bullish|bearish", ...}
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
+var tradeSignals *bool
 
-func fetchSymbols(futuresClient *futures.Client, wg sync.WaitGroup) map[string]string {
+func fetchSymbols(futuresClient *futures.Client, wg *sync.WaitGroup) map[string]string {
 	symbolIntervalPair := make(map[string]string)
 
 	exchangeInfo, err := futuresClient.NewExchangeInfoService().Do(context.Background())
@@ -37,23 +42,21 @@ func fetchSymbols(futuresClient *futures.Client, wg sync.WaitGroup) map[string]s
 		if asset.QuoteAsset == "USDT" && asset.ContractType == "PERPETUAL" && asset.UnderlyingType == "COIN" &&
 			asset.Status == "TRADING" && asset.BaseAsset != "1000BTTC" {
 			symbol := asset.Symbol
-			symbolIntervalPair[symbol] = INTERVAL
+			symbolIntervalPair[symbol] = interval
 
 			wg.Add(1)
 
-			go fetchInitialCloses(futuresClient, symbol, wg)
+			defer wg.Done()
+			go fetchInitialCloses(futuresClient, symbol, symbolIntervalPair, wg)
 		}
 	}
 
 	return symbolIntervalPair
 }
 
-func fetchInitialCloses(futuresClient *futures.Client, symbol string, wg sync.WaitGroup) {
-	defer wg.Done()
-
+func fetchInitialCloses(futuresClient *futures.Client, symbol string, symbolIntervalPair map[string]string, wg *sync.WaitGroup) {
 	klines, err := futuresClient.NewKlinesService().
-		Symbol(symbol).Interval(INTERVAL).Limit(LIMIT).
-		Do(context.Background())
+		Symbol(symbol).Interval(interval).Limit(LIMIT).Do(context.Background())
 	if err != nil {
 		log.Fatal().Str("err", err.Error()).Msg("Crashed fetching klines")
 	}
@@ -61,10 +64,15 @@ func fetchInitialCloses(futuresClient *futures.Client, symbol string, wg sync.Wa
 	// NOTE: we don't use LIMIT because asset may be too new, so len(klines) < 200
 	kline_count := len(klines)
 
-	for i := 0; i < kline_count; i++ {
-		if close, err := strconv.ParseFloat(klines[i].Close, 64); err == nil {
-			symbolCloses[symbol] = append(symbolCloses[symbol], close)
+	// Discard assets with few candles due to impossibility of doing TA.
+	if kline_count >= 40 {
+		for i := 0; i < kline_count; i++ {
+			if close, err := strconv.ParseFloat(klines[i].Close, 64); err == nil {
+				symbolCloses[symbol] = append(symbolCloses[symbol], close)
+			}
 		}
+	} else {
+		delete(symbolIntervalPair, symbol)
 	}
 }
 
@@ -106,13 +114,11 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 
 	p := pair.New(closes, lastCloseIndex, symbol)
 
-	// Only send alert if there's a signal, a side, and no alert has been sent.
-	if p.Signal_Count >= 1 && p.Side != pair.NA && alerts[symbol] != p.Side {
-		// TODO: store triggered alerts based on signal+symbol, not just symbol.
-		alerts[symbol] = p.Side
+	// TODO: implement correct alert storage logic.
+	// notAlerted := !(sentAlerts[symbol] != p.Side)
 
-		utils.SendTelegramAlert(&p)
-
+	// Only trade or send alert if there's a signal, a side, and no alert has been sent.
+	if p.Signal_Count >= 1 && p.Side != pair.NA { // && notAlerted {
 		log.Info().
 			Str("EMA_Cross", p.EMA_Cross).
 			Float64("Price", p.Price).
@@ -121,7 +127,19 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			Uint("Signal_Count", p.Signal_Count).
 			Str("Trend", p.Trend).
 			Str("Side", p.Side).
-			Msg(p.Symbol)
+			Str("Symbol", p.Symbol).
+			Msg("⚡")
+
+		if *alertOnSignals {
+			utils.SendTelegramAlert(log, &p)
+		}
+
+		if *tradeSignals {
+			order.New(futuresClient, log, &p)
+		}
+
+		// TODO: store triggered alerts based on signal+symbol, not just symbol.
+		sentAlerts[symbol] = p.Side
 	}
 }
 
@@ -131,15 +149,24 @@ func main() {
 
 	apiKey, secretKey := utils.LoadEnvFile(log)
 
+	// TODO: implement alerts handling.
+	// alerts := utils.LoadAlerts(log)
+
+	alertOnSignals = flag.Bool("signals", false, "send signal alerts on Telegram")
+	tradeSignals = flag.Bool("trade", false, "trade signals on Binance USD-M")
+	flag.StringVar(&interval, "interval", "4h", "interval to scan for")
+
+	flag.Parse()
+
 	// TODO: change to bot instance >>> bot := telegram.NewTelegramBot(log)
 	// bot := telegram.NewTelegramBot(log)
 	utils.NewTelegramBot(log)
 
 	futuresClient := binance.NewFuturesClient(apiKey, secretKey)
 
-	log.Debug().Msg("💡 Fetching symbols")
+	log.Debug().Str("interval", interval).Msg("💡 Fetching symbols")
 
-	symbols := fetchSymbols(futuresClient, wg)
+	symbols := fetchSymbols(futuresClient, &wg)
 
 	// Handle CTRL-C (may want to do something on exit)
 	c := make(chan os.Signal, 1)
@@ -167,9 +194,9 @@ func main() {
 		log.Fatal().Msg(err.Error())
 	}
 
-	log.Debug().Str("interval", INTERVAL).Msg("🔌 WebSocket initialised")
+	log.Debug().Msg("🔌 WebSocket initialised")
 
-	utils.SendTelegramInit(INTERVAL, len(symbols))
+	utils.SendTelegramInit(interval, log, len(symbols))
 
 	<-doneC
 }
