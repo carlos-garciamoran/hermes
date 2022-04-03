@@ -61,17 +61,15 @@ func fetchInitialCloses(futuresClient *futures.Client, symbol string, symbolInte
 		log.Fatal().Str("err", err.Error()).Msg("Crashed fetching klines")
 	}
 
-	// NOTE: we don't use LIMIT because asset may be too new, so len(klines) < 200
-	kline_count := len(klines)
-
-	// Discard assets with few candles due to impossibility of doing TA.
-	if kline_count >= 40 {
-		for i := 0; i < kline_count; i++ {
+	// Discard assets with less than LIMIT candles due to impossibility of computing EMA LIMIT.
+	if len(klines) == LIMIT {
+		for i := 0; i < LIMIT; i++ {
 			if close, err := strconv.ParseFloat(klines[i].Close, 64); err == nil {
 				symbolCloses[symbol] = append(symbolCloses[symbol], close)
 			}
 		}
 	} else {
+		log.Info().Str("symbol", symbol).Msg("Discarded")
 		delete(symbolIntervalPair, symbol)
 	}
 }
@@ -143,26 +141,44 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 	}
 }
 
-func main() {
-	var err error
-	var wg sync.WaitGroup
+func parseFlags() {
+	alertOnSignals = flag.Bool("signals", false, "send signal alerts on Telegram")
+	tradeSignals = flag.Bool("trade", false, "trade signals on Binance USD-M")
+	flag.StringVar(&interval, "interval", "", "interval to scan for: 1m, 3m, 5m, 15m, 30m, 1h, 4h, 1d")
+
+	flag.Parse()
+
+	intervalIsValid := false
+	validIntervals := []string{"1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"}
+	for _, valid_interval := range validIntervals {
+		if interval == valid_interval {
+			intervalIsValid = true
+		}
+	}
+
+	if !intervalIsValid {
+		log.Fatal().Msg("Please specify a valid interval")
+	}
+}
+
+func init() {
+	parseFlags()
 
 	apiKey, secretKey := utils.LoadEnvFile(log)
 
 	// TODO: implement alerts handling.
 	// alerts := utils.LoadAlerts(log)
 
-	alertOnSignals = flag.Bool("signals", false, "send signal alerts on Telegram")
-	tradeSignals = flag.Bool("trade", false, "trade signals on Binance USD-M")
-	flag.StringVar(&interval, "interval", "4h", "interval to scan for")
-
-	flag.Parse()
-
 	// TODO: change to bot instance >>> bot := telegram.NewTelegramBot(log)
 	// bot := telegram.NewTelegramBot(log)
 	utils.NewTelegramBot(log)
 
-	futuresClient := binance.NewFuturesClient(apiKey, secretKey)
+	futuresClient = binance.NewFuturesClient(apiKey, secretKey)
+}
+
+func main() {
+	var err error
+	var wg sync.WaitGroup
 
 	log.Debug().Str("interval", interval).Msg("💡 Fetching symbols")
 
