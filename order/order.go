@@ -11,34 +11,51 @@ import (
 )
 
 func New(futuresClient *futures.Client, log zerolog.Logger, p *pair.Pair) {
-	side := futures.SideTypeBuy
-	if p.Side == pair.SELL {
-		side = futures.SideTypeSell
-	}
-
+	// TODO: cache available balance >>> do NOT request on every call.
 	res, err := futuresClient.NewGetAccountService().Do(context.Background())
 	if err != nil {
 		log.Fatal().Str("err", err.Error()).Msg("Crashed getting wallet balance")
 	}
 
-	balance, _ := strconv.ParseFloat(res.TotalWalletBalance, 32)
-	quantity := strconv.FormatFloat(p.Price/balance, 'f', 6, 64)
+	asset := p.Asset
 
-	log.Info().
-		Str("symbol", p.Symbol).
-		Str("quantity", quantity).
-		Msg("creating new order")
+	// NOTE: substract 10% from total balance to give margin
+	balance, _ := strconv.ParseFloat(res.TotalWalletBalance, 64)
+	availableBalance := balance - (balance * .1)
 
-	order, err := futuresClient.NewCreateOrderService().Symbol(p.Symbol + "USDT").
-		Side(side).Type(futures.OrderTypeMarket).Quantity(quantity).Do(context.Background())
-	if err != nil {
-		log.Fatal().Str("err", err.Error()).Msg("Crashed creating Binance order")
+	quantity := availableBalance / p.Price
+
+	log.Debug().
+		Float64("availableBalance", availableBalance).
+		Float64("maxQuantity", asset.MaxQuantity).
+		Float64("minQuantity", asset.MinQuantity).
+		Int("precision", asset.QuantityPrecision).
+		Float64("quantity", quantity).
+		Str("symbol", asset.Symbol).
+		Msg("Trying to create new order...")
+
+	side := futures.SideTypeBuy
+	if p.Side == pair.SELL {
+		side = futures.SideTypeSell
 	}
 
-	log.Info().
-		Int64("OrderID", order.OrderID).
-		Msg("CREATED ORDER")
+	if quantity >= asset.MinQuantity && quantity <= asset.MaxQuantity {
+		log.Info().Msg("Getting in...")
 
-	// TODO: send LONG/SHORT ALERT on TELEGRAM
-	// utils.SendTelegramAlert()
+		order, err := futuresClient.NewCreateOrderService().
+			Symbol(asset.Symbol).
+			Side(side).
+			Type(futures.OrderTypeMarket).
+			Quantity(strconv.FormatFloat(quantity, 'f', asset.QuantityPrecision, 64)).
+			Do(context.Background())
+		if err != nil {
+			log.Fatal().Str("err", err.Error()).Msg("Crashed creating Binance order")
+		}
+
+		log.Info().
+			Int64("OrderID", order.OrderID).
+			Msg("💳 Created order")
+		// TODO: send LONG/SHORT ALERT on TELEGRAM
+		// utils.SendTelegramAlert()
+	}
 }

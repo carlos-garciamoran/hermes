@@ -25,11 +25,12 @@ var log zerolog.Logger = utils.InitLogging()
 var alertOnSignals *bool
 var futuresClient *futures.Client
 var interval string
-var sentAlerts = make(map[string]string)      // {"BTCUSDT": "bullish|bearish", ...}
+var sentAlerts = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
+var symbolAssets = make(map[string]pair.Asset)
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
 var tradeSignals *bool
 
-func fetchSymbols(futuresClient *futures.Client, wg *sync.WaitGroup) map[string]string {
+func fetchAssets(futuresClient *futures.Client, wg *sync.WaitGroup) map[string]string {
 	symbolIntervalPair := make(map[string]string)
 
 	exchangeInfo, err := futuresClient.NewExchangeInfoService().Do(context.Background())
@@ -38,10 +39,23 @@ func fetchSymbols(futuresClient *futures.Client, wg *sync.WaitGroup) map[string]
 	}
 
 	// Filter unwanted symbols (non-USDT, quarterlies, indexes, unactive, and 1000BTTC)
-	for _, asset := range exchangeInfo.Symbols {
-		if asset.QuoteAsset == "USDT" && asset.ContractType == "PERPETUAL" && asset.UnderlyingType == "COIN" &&
-			asset.Status == "TRADING" && asset.BaseAsset != "1000BTTC" {
-			symbol := asset.Symbol
+	for _, rawAsset := range exchangeInfo.Symbols {
+		if rawAsset.QuoteAsset == "USDT" && rawAsset.ContractType == "PERPETUAL" && rawAsset.UnderlyingType == "COIN" &&
+			rawAsset.Status == "TRADING" && rawAsset.BaseAsset != "1000BTTC" {
+
+			symbol := rawAsset.Symbol
+			maxQuantity, _ := strconv.ParseFloat(rawAsset.LotSizeFilter().MaxQuantity, 64)
+			minQuantity, _ := strconv.ParseFloat(rawAsset.LotSizeFilter().MinQuantity, 64)
+
+			symbolAssets[symbol] = pair.Asset{
+				BaseAsset:         rawAsset.BaseAsset,
+				MaxQuantity:       maxQuantity,
+				MinQuantity:       minQuantity,
+				PricePrecision:    rawAsset.PricePrecision,
+				QuantityPrecision: rawAsset.QuantityPrecision,
+				Symbol:            symbol,
+			}
+
 			symbolIntervalPair[symbol] = interval
 
 			wg.Add(1)
@@ -69,7 +83,6 @@ func fetchInitialCloses(futuresClient *futures.Client, symbol string, symbolInte
 			}
 		}
 	} else {
-		log.Info().Str("symbol", symbol).Msg("Discarded")
 		delete(symbolIntervalPair, symbol)
 	}
 }
@@ -109,8 +122,9 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 	}
 
 	symbolCloses[symbol] = closes // Update the global map
+	asset := symbolAssets[symbol]
 
-	p := pair.New(closes, lastCloseIndex, symbol)
+	p := pair.New(closes, lastCloseIndex, &asset)
 
 	// TODO: implement correct alert storage logic.
 	// notAlerted := !(sentAlerts[symbol] != p.Side)
@@ -125,7 +139,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			Uint("Signal_Count", p.Signal_Count).
 			Str("Trend", p.Trend).
 			Str("Side", p.Side).
-			Str("Symbol", p.Symbol).
+			Str("Symbol", symbol).
 			Msg("⚡")
 
 		if *alertOnSignals {
@@ -182,7 +196,7 @@ func main() {
 
 	log.Debug().Str("interval", interval).Msg("💡 Fetching symbols")
 
-	symbols := fetchSymbols(futuresClient, &wg)
+	symbolIntervalPair := fetchAssets(futuresClient, &wg)
 
 	// Handle CTRL-C (may want to do something on exit)
 	c := make(chan os.Signal, 1)
@@ -201,18 +215,18 @@ func main() {
 	// TODO: find better way to wait for the cache to be built before starting the WS
 	time.Sleep(2 * time.Second)
 
-	log.Info().Int("count", len(symbols)).Msg("🪙  Fetched symbols")
+	log.Info().Int("count", len(symbolIntervalPair)).Msg("🪙  Fetched symbols")
 
 	errHandler := func(err error) { log.Fatal().Msg(err.Error()) }
 
-	doneC, _, err := futures.WsCombinedKlineServe(symbols, wsKlineHandler, errHandler)
+	doneC, _, err := futures.WsCombinedKlineServe(symbolIntervalPair, wsKlineHandler, errHandler)
 	if err != nil {
 		log.Fatal().Msg(err.Error())
 	}
 
 	log.Debug().Msg("🔌 WebSocket initialised")
 
-	utils.SendTelegramInit(interval, log, len(symbols))
+	utils.SendTelegramInit(interval, log, len(symbolIntervalPair))
 
 	<-doneC
 }

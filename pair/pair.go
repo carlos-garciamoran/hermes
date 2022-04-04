@@ -6,7 +6,17 @@ import (
 	"github.com/markcheno/go-talib"
 )
 
+type Asset struct {
+	BaseAsset         string
+	MaxQuantity       float64
+	MinQuantity       float64
+	PricePrecision    int
+	QuantityPrecision int
+	Symbol            string
+}
+
 type Pair struct {
+	Asset        *Asset    // Pointer to the Asset.
 	EMA_005      []float64 // Array to check for cross.
 	EMA_009      []float64 // Array to check for cross.
 	EMA_050      float64   // Current average to read trend.
@@ -83,8 +93,11 @@ var Emojis = map[string]string{
 	OVERSOLD_X3: "📉📉📉",
 }
 
-func New(closes []float64, lastCloseIndex int, symbol string) Pair {
+// TODO: change symbol string for symbol Symbol
+// func New(closes []float64, lastCloseIndex int, symbol string) Pair {
+func New(closes []float64, lastCloseIndex int, asset *Asset) Pair {
 	p := Pair{
+		Asset:        asset,
 		EMA_005:      talib.Ema(closes, 5)[lastCloseIndex-2:],
 		EMA_009:      talib.Ema(closes, 9)[lastCloseIndex-2:],
 		EMA_050:      talib.Ema(closes, 50)[lastCloseIndex],
@@ -93,7 +106,6 @@ func New(closes []float64, lastCloseIndex int, symbol string) Pair {
 		RSI:          math.Round(talib.Rsi(closes, 14)[lastCloseIndex]*100) / 100,
 		Signal_Count: 0,
 		Side:         NA,
-		Symbol:       symbol[:len(symbol)-4], // Trim "USDT" suffix
 	}
 
 	// TODO: REMEMBER EMAs are LAGGING INDICATORS: they should be used as CONFIRMATION
@@ -119,7 +131,6 @@ func New(closes []float64, lastCloseIndex int, symbol string) Pair {
 }
 
 func (p *Pair) calculateEMACross() {
-	// TODO: check for EMA cross between 5 & 9
 	// TODO: check for EMA cross between 10 & 50
 
 	var cross string = NA
