@@ -35,18 +35,17 @@ func NewTelegramBot(log zerolog.Logger) *tgbotapi.BotAPI {
 	return bot
 }
 
-func (bot *TelegramBot) SendTelegramInit(interval string, symbol_count int) {
+func (bot *TelegramBot) SendTelegramInit(interval string, log zerolog.Logger, symbol_count int) {
 	text := "🔔🔔 *NEW SESSION STARTED* 🔔🔔\n\n" +
-		fmt.Sprintf("    ⏱ interval: >>>*%s*<<<\n", interval) +
-		fmt.Sprintf("    🪙 symbols: >>>*%d*<<<", symbol_count)
+		fmt.Sprintf("    ⏱ interval: >*%s*<\n", interval) +
+		fmt.Sprintf("    🪙 symbols: >*%d*<", symbol_count)
 
 	if _, err := bot.Send(buildMessage(text)); err != nil {
-		fmt.Println("Crashed sending Telegram init:", err)
-		os.Exit(1)
+		log.Fatal().Str("err", err.Error()).Msg("Crashed sending Telegram init")
 	}
 }
 
-func (bot *TelegramBot) SendTelegramAlert(p *pair.Pair) {
+func (bot *TelegramBot) SendTelegramAlert(log zerolog.Logger, p *pair.Pair) {
 	text := fmt.Sprintf("⚡️ %s", p.Symbol)
 
 	if p.EMA_Cross != "NA" {
@@ -66,7 +65,6 @@ func (bot *TelegramBot) SendTelegramAlert(p *pair.Pair) {
 
 	// NOTE: may want to continue running instead of doing os.Exit()
 	if _, err := bot.Send(buildMessage(text)); err != nil {
-		fmt.Println("Crashed sending Telegram alert:", err)
-		os.Exit(1)
+		log.Fatal().Str("err", err.Error()).Msg("Crashed sending Telegram alert")
 	}
 }
