@@ -19,3 +19,6 @@ alerts.json
 
 # Enviroment files
 .env
+
+# Misc
+.vscode/
