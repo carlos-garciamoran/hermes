@@ -1,12 +1,12 @@
 package main
 
 import (
-	"flag"
 	"hermes/order"
 	"hermes/pair"
 	"hermes/utils"
 
 	"context"
+	"flag"
 	"os"
 	"os/signal"
 	"strconv"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/adshao/go-binance/v2"
 	"github.com/adshao/go-binance/v2/futures"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/rs/zerolog"
 )
 
@@ -23,6 +24,7 @@ const LIMIT int = 200
 var log zerolog.Logger = utils.InitLogging()
 
 var alertOnSignals *bool
+var bot *tgbotapi.BotAPI
 var futuresClient *futures.Client
 var interval string
 var sentAlerts = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
@@ -143,7 +145,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			Msg("⚡")
 
 		if *alertOnSignals {
-			utils.SendTelegramAlert(log, &p)
+			utils.SendTelegramAlert(bot, log, &p)
 		}
 
 		if *tradeSignals {
@@ -156,7 +158,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 }
 
 func parseFlags() {
-	alertOnSignals = flag.Bool("signals", false, "send signal alerts on Telegram")
+	alertOnSignals = flag.Bool("alert", false, "send signal alerts on Telegram")
 	tradeSignals = flag.Bool("trade", false, "trade signals on Binance USD-M")
 	flag.StringVar(&interval, "interval", "", "interval to scan for: 1m, 3m, 5m, 15m, 30m, 1h, 4h, 1d")
 
@@ -171,7 +173,8 @@ func parseFlags() {
 	}
 
 	if !intervalIsValid {
-		log.Fatal().Msg("Please specify a valid interval")
+		log.Error().Msg("Please specify a valid interval")
+		os.Exit(2)
 	}
 }
 
@@ -180,23 +183,17 @@ func init() {
 
 	apiKey, secretKey := utils.LoadEnvFile(log)
 
-	// TODO: implement alerts handling.
-	// alerts := utils.LoadAlerts(log)
+	alerts := utils.LoadAlerts(log)
 
-	// TODO: change to bot instance >>> bot := telegram.NewTelegramBot(log)
-	// bot := telegram.NewTelegramBot(log)
-	utils.NewTelegramBot(log)
+	log.Info().Int("count", len(alerts)).Msg("⚙️  Loaded alerts")
+
+	bot = utils.NewTelegramBot(log)
 
 	futuresClient = binance.NewFuturesClient(apiKey, secretKey)
 }
 
 func main() {
-	var err error
 	var wg sync.WaitGroup
-
-	log.Debug().Str("interval", interval).Msg("💡 Fetching symbols")
-
-	symbolIntervalPair := fetchAssets(futuresClient, &wg)
 
 	// Handle CTRL-C (may want to do something on exit)
 	c := make(chan os.Signal, 1)
@@ -210,12 +207,16 @@ func main() {
 		}
 	}()
 
+	log.Info().Str("interval", interval).Msg("💡 Fetching symbols")
+
+	symbolIntervalPair := fetchAssets(futuresClient, &wg)
+
 	wg.Wait()
 
 	// TODO: find better way to wait for the cache to be built before starting the WS
-	time.Sleep(2 * time.Second)
+	time.Sleep(time.Second)
 
-	log.Info().Int("count", len(symbolIntervalPair)).Msg("🪙  Fetched symbols")
+	log.Info().Int("count", len(symbolIntervalPair)).Msg("🪙  Fetched symbols!")
 
 	errHandler := func(err error) { log.Fatal().Msg(err.Error()) }
 
@@ -224,9 +225,14 @@ func main() {
 		log.Fatal().Msg(err.Error())
 	}
 
-	log.Debug().Msg("🔌 WebSocket initialised")
+	log.Info().
+		Bool("alert", *alertOnSignals).
+		Bool("trade", *tradeSignals).
+		Msg("🔌 WebSocket initialised!")
 
-	utils.SendTelegramInit(interval, log, len(symbolIntervalPair))
+	if *alertOnSignals {
+		utils.SendTelegramInit(bot, interval, log, len(symbolIntervalPair))
+	}
 
 	<-doneC
 }

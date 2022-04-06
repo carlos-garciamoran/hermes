@@ -27,7 +27,6 @@ func New(futuresClient *futures.Client, log zerolog.Logger, p *pair.Pair) {
 
 	log.Debug().
 		Float64("availableBalance", availableBalance).
-		Float64("maxQuantity", asset.MaxQuantity).
 		Float64("minQuantity", asset.MinQuantity).
 		Int("precision", asset.QuantityPrecision).
 		Float64("quantity", quantity).
@@ -40,13 +39,14 @@ func New(futuresClient *futures.Client, log zerolog.Logger, p *pair.Pair) {
 	}
 
 	if quantity >= asset.MinQuantity && quantity <= asset.MaxQuantity {
+		finalQuantity := strconv.FormatFloat(quantity, 'f', asset.QuantityPrecision, 64)
 		log.Info().Msg("Getting in...")
 
 		order, err := futuresClient.NewCreateOrderService().
 			Symbol(asset.Symbol).
 			Side(side).
 			Type(futures.OrderTypeMarket).
-			Quantity(strconv.FormatFloat(quantity, 'f', asset.QuantityPrecision, 64)).
+			Quantity(finalQuantity).
 			Do(context.Background())
 		if err != nil {
 			log.Fatal().Str("err", err.Error()).Msg("Crashed creating Binance order")

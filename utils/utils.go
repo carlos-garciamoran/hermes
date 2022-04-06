@@ -1,26 +1,25 @@
 package utils
 
 import (
-	"encoding/json"
 	"hermes/pair"
+
+	"encoding/json"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-
-	"fmt"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 )
 
-var bot *tgbotapi.BotAPI
 var chatID int64
 
-type alert struct {
+type Alert struct {
 	Type      string
-	Price     int
+	Price     float64
 	Condition string
 	Symbol    string
 }
@@ -46,13 +45,13 @@ func InitLogging() zerolog.Logger {
 	return zerolog.New(output).With().Timestamp().Logger()
 }
 
-func LoadAlerts(log zerolog.Logger) []alert {
+func LoadAlerts(log zerolog.Logger) []Alert {
 	dat, err := os.ReadFile("./alerts.json")
 	if err != nil {
 		log.Fatal().Msg(err.Error())
 	}
 
-	alerts := []alert{}
+	alerts := []Alert{}
 	json.Unmarshal(dat, &alerts)
 
 	return alerts
@@ -75,27 +74,30 @@ func LoadEnvFile(log zerolog.Logger) (string, string) {
 	return os.Getenv("BINANCE_APIKEY"), os.Getenv("BINANCE_SECRETKEY")
 }
 
-func NewTelegramBot(log zerolog.Logger) {
-	var err error
-
-	bot, err = tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_APITOKEN"))
+func NewTelegramBot(log zerolog.Logger) *tgbotapi.BotAPI {
+	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_APITOKEN"))
 
 	if err != nil {
 		log.Fatal().Str("err", err.Error()).Msg("Crashed creating Telegram bot")
 	}
+
+	return bot
 }
 
-func SendTelegramInit(interval string, log zerolog.Logger, symbol_count int) {
-	text := "🔔🔔 *NEW SESSION STARTED* 🔔🔔\n\n" +
-		fmt.Sprintf("    ⏱ interval: >>>*%s*<<<\n", interval) +
-		fmt.Sprintf("    🪙 symbols: >>>*%d*<<<", symbol_count)
+func SendTelegramInit(bot *tgbotapi.BotAPI, interval string, log zerolog.Logger, symbol_count int) {
+	text := fmt.Sprintf(
+		"🔔🔔 *NEW SESSION STARTED* 🔔🔔\n\n"+
+			"    ⏱ interval: >*%s*<\n"+
+			"    🪙 symbols: >*%d*<",
+		interval, symbol_count,
+	)
 
 	if _, err := bot.Send(buildMessage(text)); err != nil {
 		log.Fatal().Str("err", err.Error()).Msg("Crashed sending Telegram init")
 	}
 }
 
-func SendTelegramAlert(log zerolog.Logger, p *pair.Pair) {
+func SendTelegramAlert(bot *tgbotapi.BotAPI, log zerolog.Logger, p *pair.Pair) {
 	text := fmt.Sprintf("⚡️ %s", p.Symbol)
 
 	if p.EMA_Cross != "NA" {
