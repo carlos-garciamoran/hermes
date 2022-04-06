@@ -23,6 +23,7 @@ const LIMIT int = 200
 
 var log zerolog.Logger = utils.InitLogging()
 
+var alerts []utils.Alert
 var alertOnSignals *bool
 var bot *tgbotapi.BotAPI
 var futuresClient *futures.Client
@@ -89,10 +90,58 @@ func fetchInitialCloses(futuresClient *futures.Client, symbol string, symbolInte
 	}
 }
 
+func checkAlerts(p *pair.Pair) {
+	price, symbol := p.Price, p.Symbol
+
+	// HACK: using a pre-built symbol map (of alerts) may improve performance: O(1) beats O(n)
+	for i, alert := range alerts {
+		if alert.Symbol == symbol && !alert.Notified && alert.Type == "price" {
+			// TODO: check if parentheses are actually needed.
+			alertTriggered := (alert.Condition == ">=" && price >= alert.Price) ||
+				(alert.Condition == "<=" && price <= alert.Price) ||
+				(alert.Condition == "<" && price < alert.Price) ||
+				(alert.Condition == ">" && price > alert.Price)
+
+			if alertTriggered {
+				log.Info().Str("symbol", symbol).Float64("price", price).Msg("Alert triggered!")
+				utils.SendTelegramAlert(bot, log, p)
+				alerts[i].Notified = true
+			}
+		}
+	}
+}
+
+func checkSignals(p *pair.Pair) {
+	// Only trade or send alert if there's a signal, a side, and no alert has been sent.
+	if p.Signal_Count >= 1 && p.Side != pair.NA && sentAlerts[p.Symbol] != p.Side {
+		log.Info().
+			Str("EMA_Cross", p.EMA_Cross).
+			Float64("Price", p.Price).
+			Float64("RSI", p.RSI).
+			Str("RSI_Signal", p.RSI_Signal).
+			Uint("Signal_Count", p.Signal_Count).
+			Str("Trend", p.Trend).
+			Str("Side", p.Side).
+			Str("Symbol", p.Asset.BaseAsset).
+			Msg("⚡")
+
+		if *alertOnSignals {
+			utils.SendTelegramAlert(bot, log, p)
+		}
+
+		if *tradeSignals {
+			order.New(futuresClient, log, p)
+		}
+
+		// TODO: store triggered alerts based on signal+symbol, not just symbol.
+		sentAlerts[p.Symbol] = p.Side
+	}
+}
+
 func wsKlineHandler(event *futures.WsKlineEvent) {
 	k, symbol := event.Kline, event.Symbol
 
-	parsedCandle := make(map[string]float64)
+	parsedCandle := make(map[string]float64, 4)
 	rawCandle := map[string]string{
 		"Open":  k.Open,
 		"High":  k.High,
@@ -109,15 +158,17 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 		parsedCandle[key] = parsedValue
 	}
 
-	// NOTE: currently, only closes are updated (there may be TA indicators that use other OHLC values)
-	// HACK: may want to hardcode the length (to find last close) for optimizing performance
+	price := parsedCandle["Close"]
+
+	// NOTE: currently, only closes are updated (there may be TA indicators using other OHLC values)
 	closes := symbolCloses[symbol]
-	lastCloseIndex := len(symbolCloses[symbol]) - 1
-	closes[lastCloseIndex] = parsedCandle["Close"] // Update the last candle
+	lastCloseIndex := LIMIT - 1
+
+	closes[lastCloseIndex] = price // Update the last candle
 
 	// Rotate all candles but the last one (already set above).
 	if k.IsFinal {
-		// i.e., close[0] = close[1], ..., close[199] = parsedCandle["Close"]
+		// close[0] = close[1], ..., close[199] = parsedCandle["Close"]
 		for i := 0; i < lastCloseIndex; i++ {
 			closes[i] = closes[i+1]
 		}
@@ -128,39 +179,15 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 
 	p := pair.New(closes, lastCloseIndex, &asset)
 
-	// TODO: implement correct alert storage logic.
-	// notAlerted := !(sentAlerts[symbol] != p.Side)
+	checkAlerts(&p)
 
-	// Only trade or send alert if there's a signal, a side, and no alert has been sent.
-	if p.Signal_Count >= 1 && p.Side != pair.NA { // && notAlerted {
-		log.Info().
-			Str("EMA_Cross", p.EMA_Cross).
-			Float64("Price", p.Price).
-			Float64("RSI", p.RSI).
-			Str("RSI_Signal", p.RSI_Signal).
-			Uint("Signal_Count", p.Signal_Count).
-			Str("Trend", p.Trend).
-			Str("Side", p.Side).
-			Str("Symbol", symbol).
-			Msg("⚡")
-
-		if *alertOnSignals {
-			utils.SendTelegramAlert(bot, log, &p)
-		}
-
-		if *tradeSignals {
-			order.New(futuresClient, log, &p)
-		}
-
-		// TODO: store triggered alerts based on signal+symbol, not just symbol.
-		sentAlerts[symbol] = p.Side
-	}
+	checkSignals(&p)
 }
 
 func parseFlags() {
-	alertOnSignals = flag.Bool("alert", false, "send signal alerts on Telegram")
+	alertOnSignals = flag.Bool("signals", false, "send signal alerts on Telegram")
 	tradeSignals = flag.Bool("trade", false, "trade signals on Binance USD-M")
-	flag.StringVar(&interval, "interval", "", "interval to scan for: 1m, 3m, 5m, 15m, 30m, 1h, 4h, 1d")
+	flag.StringVar(&interval, "interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 4h, 1d")
 
 	flag.Parse()
 
@@ -183,7 +210,7 @@ func init() {
 
 	apiKey, secretKey := utils.LoadEnvFile(log)
 
-	alerts := utils.LoadAlerts(log)
+	alerts = utils.LoadAlerts(log)
 
 	log.Info().Int("count", len(alerts)).Msg("⚙️  Loaded alerts")
 
@@ -207,7 +234,7 @@ func main() {
 		}
 	}()
 
-	log.Info().Str("interval", interval).Msg("💡 Fetching symbols")
+	log.Info().Str("interval", interval).Msg("💡 Fetching symbols...")
 
 	symbolIntervalPair := fetchAssets(futuresClient, &wg)
 
@@ -226,11 +253,11 @@ func main() {
 	}
 
 	log.Info().
-		Bool("alert", *alertOnSignals).
+		Bool("signals", *alertOnSignals).
 		Bool("trade", *tradeSignals).
 		Msg("🔌 WebSocket initialised!")
 
-	if *alertOnSignals {
+	if *alertOnSignals || len(alerts) >= 1 {
 		utils.SendTelegramInit(bot, interval, log, len(symbolIntervalPair))
 	}
 

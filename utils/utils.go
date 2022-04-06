@@ -18,10 +18,11 @@ import (
 var chatID int64
 
 type Alert struct {
-	Type      string
-	Price     float64
 	Condition string
+	Notified  bool
+	Price     float64
 	Symbol    string
+	Type      string
 }
 
 func buildMessage(text string) tgbotapi.MessageConfig {
@@ -108,12 +109,20 @@ func SendTelegramAlert(bot *tgbotapi.BotAPI, log zerolog.Logger, p *pair.Pair) {
 		text += fmt.Sprintf(" | _RSI %s_ %s", p.RSI_Signal, pair.Emojis[p.RSI_Signal])
 	}
 
+	// TODO: set float precision based on p.Asset.PricePrecision
 	text += fmt.Sprintf("\n"+
+		"    — Price: %.3f\n"+
 		"    — Trend: _%s_ %s\n"+
-		"    — RSI: %.2f\n\n"+
-		"    🔮 Side: *%s* %s",
-		p.Trend, pair.Emojis[p.Trend], p.RSI, p.Side, pair.Emojis[p.Side],
+		"    — RSI: %.2f",
+		p.Price, p.Trend, pair.Emojis[p.Trend], p.RSI,
 	)
+
+	if p.Side != "NA" {
+		text += fmt.Sprintf("\n\n "+
+			"    🔮 Side: *%s* %s",
+			p.Side, pair.Emojis[p.Side],
+		)
+	}
 
 	// NOTE: may want to continue running instead of doing os.Exit()
 	if _, err := bot.Send(buildMessage(text)); err != nil {

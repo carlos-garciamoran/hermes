@@ -73,10 +73,9 @@ const (
 	BEARISH_X2 = "bearish-X2"
 )
 
-// ⬆️, ⬇️
 var Emojis = map[string]string{
-	BUY:  "⬆️🚀",
-	SELL: "⬇️💣",
+	BUY:  "🚀",
+	SELL: "⬇️",
 
 	BULLISH:    "🐗",
 	BULLISH_X2: "🐗🐗",
@@ -106,6 +105,7 @@ func New(closes []float64, lastCloseIndex int, asset *Asset) Pair {
 		RSI:          math.Round(talib.Rsi(closes, 14)[lastCloseIndex]*100) / 100,
 		Signal_Count: 0,
 		Side:         NA,
+		Symbol:       asset.Symbol,
 	}
 
 	// TODO: REMEMBER EMAs are LAGGING INDICATORS: they should be used as CONFIRMATION
