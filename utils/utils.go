@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -28,6 +29,29 @@ func InitLogging() zerolog.Logger {
 	}
 
 	return zerolog.New(output).With().Timestamp().Logger()
+}
+
+func ParseFlags(log zerolog.Logger) (bool, bool, string) {
+	interval := flag.String("interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 4h, 1d")
+	alertOnSignals := flag.Bool("signals", false, "send signal alerts on Telegram")
+	tradeSignals := flag.Bool("trade", false, "trade signals on Binance USD-M account")
+
+	flag.Parse()
+
+	intervalIsValid := false
+	validIntervals := []string{"1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"}
+	for _, valid_interval := range validIntervals {
+		if *interval == valid_interval {
+			intervalIsValid = true
+		}
+	}
+
+	if !intervalIsValid {
+		log.Error().Msg("Please specify a valid interval")
+		os.Exit(2)
+	}
+
+	return *alertOnSignals, *tradeSignals, *interval
 }
 
 func LoadAlerts(log zerolog.Logger) []Alert {

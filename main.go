@@ -7,7 +7,6 @@ import (
 	"hermes/utils"
 
 	"context"
-	"flag"
 	"os"
 	"os/signal"
 	"strconv"
@@ -24,14 +23,14 @@ const LIMIT int = 200
 var log zerolog.Logger = utils.InitLogging()
 
 var alerts []utils.Alert
-var alertOnSignals *bool
+var alertOnSignals bool
 var bot telegram.Bot
 var futuresClient *futures.Client
 var interval string
 var sentAlerts = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
 var symbolAssets = make(map[string]analysis.Asset)
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
-var tradeSignals *bool
+var tradeSignals bool
 
 func fetchAssets(futuresClient *futures.Client, wg *sync.WaitGroup) map[string]string {
 	symbolIntervalPair := make(map[string]string)
@@ -104,7 +103,7 @@ func checkAlerts(a *analysis.Analysis) {
 
 			if alertTriggered {
 				log.Info().Str("symbol", symbol).Float64("price", price).Msg("Alert triggered!")
-				// bot.SendAlert(log, a)
+				bot.SendAlert(log, a)
 				alerts[i].Notified = true
 			}
 		}
@@ -125,11 +124,11 @@ func checkSignals(a *analysis.Analysis) {
 			Str("Symbol", a.Asset.BaseAsset).
 			Msg("⚡")
 
-		if *alertOnSignals {
+		if alertOnSignals {
 			bot.SendAlert(log, a)
 		}
 
-		if *tradeSignals {
+		if tradeSignals {
 			order.New(futuresClient, log, a)
 		}
 
@@ -184,29 +183,8 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 	checkSignals(&a)
 }
 
-func parseFlags() {
-	alertOnSignals = flag.Bool("signals", false, "send signal alerts on Telegram")
-	tradeSignals = flag.Bool("trade", false, "trade signals on Binance USD-M")
-	flag.StringVar(&interval, "interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 4h, 1d")
-
-	flag.Parse()
-
-	intervalIsValid := false
-	validIntervals := []string{"1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"}
-	for _, valid_interval := range validIntervals {
-		if interval == valid_interval {
-			intervalIsValid = true
-		}
-	}
-
-	if !intervalIsValid {
-		log.Error().Msg("Please specify a valid interval")
-		os.Exit(2)
-	}
-}
-
 func init() {
-	parseFlags()
+	alertOnSignals, tradeSignals, interval = utils.ParseFlags(log)
 
 	apiKey, secretKey := utils.LoadEnvFile(log)
 
@@ -253,11 +231,11 @@ func main() {
 	}
 
 	log.Info().
-		Bool("signals", *alertOnSignals).
-		Bool("trade", *tradeSignals).
+		Bool("signals", alertOnSignals).
+		Bool("trade", tradeSignals).
 		Msg("🔌 WebSocket initialised!")
 
-	if *alertOnSignals || len(alerts) >= 1 {
+	if alertOnSignals || len(alerts) >= 1 {
 		bot.SendInit(interval, log, len(symbolIntervalPair))
 	}
 
