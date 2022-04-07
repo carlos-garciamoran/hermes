@@ -1,9 +1,13 @@
-package pair
+package analysis
 
 import (
+	// "hermes/telegram"
+	// "hermes/utils"
+
 	"math"
 
 	"github.com/markcheno/go-talib"
+	"github.com/rs/zerolog"
 )
 
 type Asset struct {
@@ -15,7 +19,7 @@ type Asset struct {
 	Symbol            string
 }
 
-type Pair struct {
+type Analysis struct {
 	Asset        *Asset    // Pointer to the Asset.
 	EMA_005      []float64 // Array to check for cross.
 	EMA_009      []float64 // Array to check for cross.
@@ -92,10 +96,8 @@ var Emojis = map[string]string{
 	OVERSOLD_X3: "📉📉📉",
 }
 
-// TODO: change symbol string for symbol Symbol
-// func New(closes []float64, lastCloseIndex int, symbol string) Pair {
-func New(closes []float64, lastCloseIndex int, asset *Asset) Pair {
-	p := Pair{
+func New(closes []float64, lastCloseIndex int, asset *Asset) Analysis {
+	a := Analysis{
 		Asset:        asset,
 		EMA_005:      talib.Ema(closes, 5)[lastCloseIndex-2:],
 		EMA_009:      talib.Ema(closes, 9)[lastCloseIndex-2:],
@@ -111,26 +113,51 @@ func New(closes []float64, lastCloseIndex int, asset *Asset) Pair {
 	// TODO: REMEMBER EMAs are LAGGING INDICATORS: they should be used as CONFIRMATION
 	// TODO: check for EMA200[x]close cross (reversal signal)
 
-	p.calculateEMACross()
+	a.calculateEMACross()
 
-	if p.EMA_Cross != "NA" {
-		p.Signal_Count += 1
+	if a.EMA_Cross != "NA" {
+		a.Signal_Count += 1
 	}
 
-	p.Trend = p.calculateTrend()
+	a.Trend = a.calculateTrend()
 
-	p.RSI_Signal = p.evaluateRSI()
+	a.RSI_Signal = a.evaluateRSI()
 
-	if p.RSI_Signal != "NA" {
-		p.Signal_Count += 1
+	if a.RSI_Signal != "NA" {
+		a.Signal_Count += 1
 	}
 
-	p.chooseSide()
+	a.chooseSide()
 
-	return p
+	return a
 }
 
-func (p *Pair) calculateEMACross() {
+// func (a *Analysis) CheckAlerts(alerts []utils.Alert, bot telegram.Bot, log zerolog.Logger) {
+// 	price, symbol := a.Price, a.Symbol
+
+// 	// HACK: using a pre-built symbol map (of alerts) may improve performance: O(1) beats O(n)
+// 	for i, alert := range alerts {
+// 		if alert.Symbol == symbol && !alert.Notified && alert.Type == "price" {
+// 			// TODO: check if parentheses are actually needed.
+// 			alertTriggered := (alert.Condition == ">=" && price >= alert.Price) ||
+// 				(alert.Condition == "<=" && price <= alert.Price) ||
+// 				(alert.Condition == "<" && price < alert.Price) ||
+// 				(alert.Condition == ">" && price > alert.Price)
+
+// 			if alertTriggered {
+// 				log.Info().Str("symbol", symbol).Float64("price", price).Msg("Alert triggered!")
+// 				bot.SendAlert(log, a)
+// 				alerts[i].Notified = true
+// 			}
+// 		}
+// 	}
+// }
+
+func (a *Analysis) CheckSignals(log zerolog.Logger) {
+
+}
+
+func (a *Analysis) calculateEMACross() {
 	// TODO: check for EMA cross between 10 & 50
 
 	var cross string = NA
@@ -138,7 +165,7 @@ func (p *Pair) calculateEMACross() {
 	var sum int
 
 	for i := 0; i < 3; i++ {
-		if p.EMA_005[i] < p.EMA_009[i] {
+		if a.EMA_005[i] < a.EMA_009[i] {
 			delta[i] = -1
 		} else {
 			delta[i] = 1
@@ -159,61 +186,61 @@ func (p *Pair) calculateEMACross() {
 		}
 	}
 
-	p.EMA_Cross = cross
+	a.EMA_Cross = cross
 }
 
 // TODO: give margin to evaluation (< 0.15% distance to EMA should be neutral)
-func (p *Pair) calculateTrend() string {
-	if p.Price >= p.EMA_050 && p.Price >= p.EMA_200 {
+func (a *Analysis) calculateTrend() string {
+	if a.Price >= a.EMA_050 && a.Price >= a.EMA_200 {
 		return BULLISH_X2
 	}
 
-	if p.Price >= p.EMA_050 || p.Price >= p.EMA_200 {
+	if a.Price >= a.EMA_050 || a.Price >= a.EMA_200 {
 		return BULLISH
 	}
 
-	if p.Price < p.EMA_050 && p.Price < p.EMA_200 {
+	if a.Price < a.EMA_050 && a.Price < a.EMA_200 {
 		return BEARISH_X2
 	}
 
-	if p.Price < p.EMA_050 || p.Price < p.EMA_200 {
+	if a.Price < a.EMA_050 || a.Price < a.EMA_200 {
 		return BEARISH
 	}
 
 	return NA
 }
 
-func (p *Pair) chooseSide() {
+func (a *Analysis) chooseSide() {
 	// NOTE: may want to check RSI for confirmation/discard
-	if p.Price < p.EMA_200 && p.EMA_Cross == BULLISH {
-		p.Side = BUY
-	} else if p.Price > p.EMA_200 && p.EMA_Cross == BEARISH {
-		p.Side = SELL
+	if a.Price < a.EMA_200 && a.EMA_Cross == BULLISH {
+		a.Side = BUY
+	} else if a.Price > a.EMA_200 && a.EMA_Cross == BEARISH {
+		a.Side = SELL
 	}
 }
 
-func (p *Pair) evaluateRSI() string {
-	if p.RSI >= RSI_HOT_L3 {
+func (a *Analysis) evaluateRSI() string {
+	if a.RSI >= RSI_HOT_L3 {
 		return OVERBOUGHT_X3
 	}
 
-	if p.RSI >= RSI_HOT_L2 {
+	if a.RSI >= RSI_HOT_L2 {
 		return OVERBOUGHT_X2
 	}
 
-	if p.RSI >= RSI_HOT_L1 {
+	if a.RSI >= RSI_HOT_L1 {
 		return OVERBOUGHT
 	}
 
-	if p.RSI <= RSI_COLD_L3 {
+	if a.RSI <= RSI_COLD_L3 {
 		return OVERSOLD_X3
 	}
 
-	if p.RSI <= RSI_COLD_L2 {
+	if a.RSI <= RSI_COLD_L2 {
 		return OVERSOLD_X2
 	}
 
-	if p.RSI <= RSI_COLD_L1 {
+	if a.RSI <= RSI_COLD_L1 {
 		return OVERSOLD_X2
 	}
 

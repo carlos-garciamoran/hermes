@@ -1,7 +1,7 @@
 package order
 
 import (
-	"hermes/pair"
+	"hermes/analysis"
 
 	"context"
 	"strconv"
@@ -10,20 +10,20 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func New(futuresClient *futures.Client, log zerolog.Logger, p *pair.Pair) {
+func New(futuresClient *futures.Client, log zerolog.Logger, a *analysis.Analysis) {
 	// TODO: cache available balance >>> do NOT request on every call.
 	res, err := futuresClient.NewGetAccountService().Do(context.Background())
 	if err != nil {
 		log.Fatal().Str("err", err.Error()).Msg("Crashed getting wallet balance")
 	}
 
-	asset := p.Asset
+	asset := a.Asset
 
 	// NOTE: substract 10% from total balance to give margin
 	balance, _ := strconv.ParseFloat(res.TotalWalletBalance, 64)
 	availableBalance := balance - (balance * .1)
 
-	quantity := availableBalance / p.Price
+	quantity := availableBalance / a.Price
 
 	log.Debug().
 		Float64("availableBalance", availableBalance).
@@ -34,7 +34,7 @@ func New(futuresClient *futures.Client, log zerolog.Logger, p *pair.Pair) {
 		Msg("Trying to create new order...")
 
 	side := futures.SideTypeBuy
-	if p.Side == pair.SELL {
+	if a.Side == analysis.SELL {
 		side = futures.SideTypeSell
 	}
 
@@ -55,6 +55,7 @@ func New(futuresClient *futures.Client, log zerolog.Logger, p *pair.Pair) {
 		log.Info().
 			Int64("OrderID", order.OrderID).
 			Msg("💳 Created order")
+
 		// TODO: send LONG/SHORT ALERT on TELEGRAM
 		// utils.SendTelegramAlert()
 	}

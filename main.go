@@ -1,8 +1,9 @@
 package main
 
 import (
+	"hermes/analysis"
 	"hermes/order"
-	"hermes/pair"
+	"hermes/telegram"
 	"hermes/utils"
 
 	"context"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/adshao/go-binance/v2"
 	"github.com/adshao/go-binance/v2/futures"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/rs/zerolog"
 )
 
@@ -25,11 +25,11 @@ var log zerolog.Logger = utils.InitLogging()
 
 var alerts []utils.Alert
 var alertOnSignals *bool
-var bot *tgbotapi.BotAPI
+var bot telegram.Bot
 var futuresClient *futures.Client
 var interval string
 var sentAlerts = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
-var symbolAssets = make(map[string]pair.Asset)
+var symbolAssets = make(map[string]analysis.Asset)
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
 var tradeSignals *bool
 
@@ -50,7 +50,7 @@ func fetchAssets(futuresClient *futures.Client, wg *sync.WaitGroup) map[string]s
 			maxQuantity, _ := strconv.ParseFloat(rawAsset.LotSizeFilter().MaxQuantity, 64)
 			minQuantity, _ := strconv.ParseFloat(rawAsset.LotSizeFilter().MinQuantity, 64)
 
-			symbolAssets[symbol] = pair.Asset{
+			symbolAssets[symbol] = analysis.Asset{
 				BaseAsset:         rawAsset.BaseAsset,
 				MaxQuantity:       maxQuantity,
 				MinQuantity:       minQuantity,
@@ -90,8 +90,8 @@ func fetchInitialCloses(futuresClient *futures.Client, symbol string, symbolInte
 	}
 }
 
-func checkAlerts(p *pair.Pair) {
-	price, symbol := p.Price, p.Symbol
+func checkAlerts(a *analysis.Analysis) {
+	price, symbol := a.Price, a.Symbol
 
 	// HACK: using a pre-built symbol map (of alerts) may improve performance: O(1) beats O(n)
 	for i, alert := range alerts {
@@ -104,37 +104,37 @@ func checkAlerts(p *pair.Pair) {
 
 			if alertTriggered {
 				log.Info().Str("symbol", symbol).Float64("price", price).Msg("Alert triggered!")
-				utils.SendTelegramAlert(bot, log, p)
+				// bot.SendAlert(log, a)
 				alerts[i].Notified = true
 			}
 		}
 	}
 }
 
-func checkSignals(p *pair.Pair) {
+func checkSignals(a *analysis.Analysis) {
 	// Only trade or send alert if there's a signal, a side, and no alert has been sent.
-	if p.Signal_Count >= 1 && p.Side != pair.NA && sentAlerts[p.Symbol] != p.Side {
+	if a.Signal_Count >= 1 && a.Side != analysis.NA && sentAlerts[a.Symbol] != a.Side {
 		log.Info().
-			Str("EMA_Cross", p.EMA_Cross).
-			Float64("Price", p.Price).
-			Float64("RSI", p.RSI).
-			Str("RSI_Signal", p.RSI_Signal).
-			Uint("Signal_Count", p.Signal_Count).
-			Str("Trend", p.Trend).
-			Str("Side", p.Side).
-			Str("Symbol", p.Asset.BaseAsset).
+			Str("EMA_Cross", a.EMA_Cross).
+			Float64("Price", a.Price).
+			Float64("RSI", a.RSI).
+			Str("RSI_Signal", a.RSI_Signal).
+			Uint("Signal_Count", a.Signal_Count).
+			Str("Trend", a.Trend).
+			Str("Side", a.Side).
+			Str("Symbol", a.Asset.BaseAsset).
 			Msg("⚡")
 
 		if *alertOnSignals {
-			utils.SendTelegramAlert(bot, log, p)
+			bot.SendAlert(log, a)
 		}
 
 		if *tradeSignals {
-			order.New(futuresClient, log, p)
+			order.New(futuresClient, log, a)
 		}
 
 		// TODO: store triggered alerts based on signal+symbol, not just symbol.
-		sentAlerts[p.Symbol] = p.Side
+		sentAlerts[a.Symbol] = a.Side
 	}
 }
 
@@ -177,11 +177,11 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 	symbolCloses[symbol] = closes // Update the global map
 	asset := symbolAssets[symbol]
 
-	p := pair.New(closes, lastCloseIndex, &asset)
+	a := analysis.New(closes, lastCloseIndex, &asset)
 
-	checkAlerts(&p)
+	checkAlerts(&a)
 
-	checkSignals(&p)
+	checkSignals(&a)
 }
 
 func parseFlags() {
@@ -214,7 +214,7 @@ func init() {
 
 	log.Info().Int("count", len(alerts)).Msg("⚙️  Loaded alerts")
 
-	bot = utils.NewTelegramBot(log)
+	bot = telegram.NewBot(log)
 
 	futuresClient = binance.NewFuturesClient(apiKey, secretKey)
 }
@@ -258,7 +258,7 @@ func main() {
 		Msg("🔌 WebSocket initialised!")
 
 	if *alertOnSignals || len(alerts) >= 1 {
-		utils.SendTelegramInit(bot, interval, log, len(symbolIntervalPair))
+		bot.SendInit(interval, log, len(symbolIntervalPair))
 	}
 
 	<-doneC
