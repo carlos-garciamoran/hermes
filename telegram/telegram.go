@@ -17,13 +17,18 @@ type Bot struct {
 
 var chatID int64
 
-func buildMessage(text string) tgbotapi.MessageConfig {
-	return tgbotapi.MessageConfig{
+func (bot *Bot) sendMessage(log zerolog.Logger, text *string) {
+	message := tgbotapi.MessageConfig{
 		BaseChat: tgbotapi.BaseChat{
 			ChatID: chatID,
 		},
-		Text:      text,
+		Text:      *text,
 		ParseMode: tgbotapi.ModeMarkdown,
+	}
+
+	// NOTE: may want to continue running instead of doing os.Exit()
+	if _, err := bot.Send(message); err != nil {
+		log.Fatal().Str("err", err.Error()).Msg("Crashed sending Telegram init")
 	}
 }
 
@@ -49,11 +54,10 @@ func (bot *Bot) SendInit(interval string, log zerolog.Logger, symbolCount int) {
 		interval, symbolCount,
 	)
 
-	if _, err := bot.Send(buildMessage(text)); err != nil {
-		log.Fatal().Str("err", err.Error()).Msg("Crashed sending Telegram init")
-	}
+	bot.sendMessage(log, &text)
 }
 
+// TODO: create sendMessage func.
 func (bot *Bot) SendAlert(log zerolog.Logger, a *analysis.Analysis) {
 	text := fmt.Sprintf("🔔 %s\n\n"+
 		"    — Price: *%.3f*\n"+
@@ -62,10 +66,7 @@ func (bot *Bot) SendAlert(log zerolog.Logger, a *analysis.Analysis) {
 		a.Asset.BaseAsset, a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI,
 	)
 
-	// NOTE: may want to continue running instead of doing os.Exit()
-	if _, err := bot.Send(buildMessage(text)); err != nil {
-		log.Fatal().Str("err", err.Error()).Msg("Crashed sending Telegram alert")
-	}
+	bot.sendMessage(log, &text)
 }
 
 func (bot *Bot) SendSignal(log zerolog.Logger, a *analysis.Analysis) {
@@ -83,19 +84,10 @@ func (bot *Bot) SendSignal(log zerolog.Logger, a *analysis.Analysis) {
 	text += fmt.Sprintf("\n"+
 		"    — Price: %.3f\n"+
 		"    — Trend: _%s_ %s\n"+
-		"    — RSI: %.2f",
-		a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI,
+		"    — RSI: %.2f\n\n"+
+		"    🔮 Side: *%s* %s",
+		a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI, a.Side, analysis.Emojis[a.Side],
 	)
 
-	if a.Side != "NA" {
-		text += fmt.Sprintf("\n\n "+
-			"    🔮 Side: *%s* %s",
-			a.Side, analysis.Emojis[a.Side],
-		)
-	}
-
-	// NOTE: may want to continue running instead of doing os.Exit()
-	if _, err := bot.Send(buildMessage(text)); err != nil {
-		log.Fatal().Str("err", err.Error()).Msg("Crashed sending Telegram alert")
-	}
+	bot.sendMessage(log, &text)
 }
