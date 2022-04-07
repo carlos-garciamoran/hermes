@@ -4,6 +4,7 @@ import (
 	// "hermes/telegram"
 	// "hermes/utils"
 
+	"hermes/utils"
 	"math"
 
 	"github.com/markcheno/go-talib"
@@ -96,7 +97,7 @@ var Emojis = map[string]string{
 	OVERSOLD_X3: "📉📉📉",
 }
 
-func New(closes []float64, lastCloseIndex int, asset *Asset) Analysis {
+func New(asset *Asset, closes []float64, lastCloseIndex int) Analysis {
 	a := Analysis{
 		Asset:        asset,
 		EMA_005:      talib.Ema(closes, 5)[lastCloseIndex-2:],
@@ -132,29 +133,45 @@ func New(closes []float64, lastCloseIndex int, asset *Asset) Analysis {
 	return a
 }
 
-// func (a *Analysis) CheckAlerts(alerts []utils.Alert, bot telegram.Bot, log zerolog.Logger) {
-// 	price, symbol := a.Price, a.Symbol
+func (a *Analysis) TriggersAlert(alerts *[]utils.Alert, log zerolog.Logger) bool {
+	price, symbol := a.Price, a.Symbol
 
-// 	// HACK: using a pre-built symbol map (of alerts) may improve performance: O(1) beats O(n)
-// 	for i, alert := range alerts {
-// 		if alert.Symbol == symbol && !alert.Notified && alert.Type == "price" {
-// 			// TODO: check if parentheses are actually needed.
-// 			alertTriggered := (alert.Condition == ">=" && price >= alert.Price) ||
-// 				(alert.Condition == "<=" && price <= alert.Price) ||
-// 				(alert.Condition == "<" && price < alert.Price) ||
-// 				(alert.Condition == ">" && price > alert.Price)
+	// HACK: using a pre-built symbol map (of alerts) may improve performance: O(1) beats O(n)
+	for i, alert := range *alerts {
+		if alert.Symbol == symbol && !alert.Notified && alert.Type == "price" {
+			triggersAlert := alert.Condition == ">=" && price >= alert.Price ||
+				alert.Condition == "<=" && price <= alert.Price ||
+				alert.Condition == "<" && price < alert.Price ||
+				alert.Condition == ">" && price > alert.Price
 
-// 			if alertTriggered {
-// 				log.Info().Str("symbol", symbol).Float64("price", price).Msg("Alert triggered!")
-// 				bot.SendAlert(log, a)
-// 				alerts[i].Notified = true
-// 			}
-// 		}
-// 	}
-// }
+			if triggersAlert {
+				(*alerts)[i].Notified = true
+				return true
+			}
+		}
+	}
 
-func (a *Analysis) CheckSignals(log zerolog.Logger) {
+	return false
+}
 
+func (a *Analysis) TriggersSignal(log zerolog.Logger, sentAlerts *map[string]string) bool {
+	// Only trade or send alert if there's a signal, a side, and no alert has been sent.
+	if a.Signal_Count >= 1 && a.Side != NA && (*sentAlerts)[a.Symbol] != a.Side {
+		log.Info().
+			Str("EMA_Cross", a.EMA_Cross).
+			Float64("Price", a.Price).
+			Float64("RSI", a.RSI).
+			Str("RSI_Signal", a.RSI_Signal).
+			Uint("Signal_Count", a.Signal_Count).
+			Str("Trend", a.Trend).
+			Str("Side", a.Side).
+			Str("Symbol", a.Asset.BaseAsset).
+			Msg("⚡")
+
+		return true
+	}
+
+	return false
 }
 
 func (a *Analysis) calculateEMACross() {

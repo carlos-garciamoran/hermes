@@ -43,7 +43,7 @@ func NewBot(log zerolog.Logger) Bot {
 
 func (bot *Bot) SendInit(interval string, log zerolog.Logger, symbolCount int) {
 	text := fmt.Sprintf(
-		"🔔🔔 *NEW SESSION STARTED* 🔔🔔\n\n"+
+		"🍾🍾 *NEW SESSION STARTED* 🍾🍾\n\n"+
 			"    ⏱ interval: >*%s*<\n"+
 			"    🪙 symbols: >*%d*<",
 		interval, symbolCount,
@@ -55,7 +55,21 @@ func (bot *Bot) SendInit(interval string, log zerolog.Logger, symbolCount int) {
 }
 
 func (bot *Bot) SendAlert(log zerolog.Logger, a *analysis.Analysis) {
-	text := fmt.Sprintf("⚡️ %s", a.Symbol)
+	text := fmt.Sprintf("🔔 %s\n\n"+
+		"    — Price: *%.3f*\n"+
+		"    — Trend: _%s_ %s\n"+
+		"    — RSI: %.2f",
+		a.Asset.BaseAsset, a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI,
+	)
+
+	// NOTE: may want to continue running instead of doing os.Exit()
+	if _, err := bot.Send(buildMessage(text)); err != nil {
+		log.Fatal().Str("err", err.Error()).Msg("Crashed sending Telegram alert")
+	}
+}
+
+func (bot *Bot) SendSignal(log zerolog.Logger, a *analysis.Analysis) {
+	text := fmt.Sprintf("⚡️ %s", a.Asset.BaseAsset)
 
 	if a.EMA_Cross != "NA" {
 		text += fmt.Sprintf(" | _%s EMA cross_ %s", a.EMA_Cross, analysis.Emojis[a.EMA_Cross])

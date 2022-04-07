@@ -23,10 +23,10 @@ const LIMIT int = 200
 var log zerolog.Logger = utils.InitLogging()
 
 var alerts []utils.Alert
-var alertOnSignals bool
 var bot telegram.Bot
 var futuresClient *futures.Client
 var interval string
+var notifyOnSignals bool
 var sentAlerts = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
 var symbolAssets = make(map[string]analysis.Asset)
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
@@ -89,54 +89,6 @@ func fetchInitialCloses(futuresClient *futures.Client, symbol string, symbolInte
 	}
 }
 
-func checkAlerts(a *analysis.Analysis) {
-	price, symbol := a.Price, a.Symbol
-
-	// HACK: using a pre-built symbol map (of alerts) may improve performance: O(1) beats O(n)
-	for i, alert := range alerts {
-		if alert.Symbol == symbol && !alert.Notified && alert.Type == "price" {
-			// TODO: check if parentheses are actually needed.
-			alertTriggered := (alert.Condition == ">=" && price >= alert.Price) ||
-				(alert.Condition == "<=" && price <= alert.Price) ||
-				(alert.Condition == "<" && price < alert.Price) ||
-				(alert.Condition == ">" && price > alert.Price)
-
-			if alertTriggered {
-				log.Info().Str("symbol", symbol).Float64("price", price).Msg("Alert triggered!")
-				bot.SendAlert(log, a)
-				alerts[i].Notified = true
-			}
-		}
-	}
-}
-
-func checkSignals(a *analysis.Analysis) {
-	// Only trade or send alert if there's a signal, a side, and no alert has been sent.
-	if a.Signal_Count >= 1 && a.Side != analysis.NA && sentAlerts[a.Symbol] != a.Side {
-		log.Info().
-			Str("EMA_Cross", a.EMA_Cross).
-			Float64("Price", a.Price).
-			Float64("RSI", a.RSI).
-			Str("RSI_Signal", a.RSI_Signal).
-			Uint("Signal_Count", a.Signal_Count).
-			Str("Trend", a.Trend).
-			Str("Side", a.Side).
-			Str("Symbol", a.Asset.BaseAsset).
-			Msg("⚡")
-
-		if alertOnSignals {
-			bot.SendAlert(log, a)
-		}
-
-		if tradeSignals {
-			order.New(futuresClient, log, a)
-		}
-
-		// TODO: store triggered alerts based on signal+symbol, not just symbol.
-		sentAlerts[a.Symbol] = a.Side
-	}
-}
-
 func wsKlineHandler(event *futures.WsKlineEvent) {
 	k, symbol := event.Kline, event.Symbol
 
@@ -176,15 +128,28 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 	symbolCloses[symbol] = closes // Update the global map
 	asset := symbolAssets[symbol]
 
-	a := analysis.New(closes, lastCloseIndex, &asset)
+	a := analysis.New(&asset, closes, lastCloseIndex)
 
-	checkAlerts(&a)
+	if a.TriggersAlert(&alerts, log) {
+		bot.SendAlert(log, &a)
+	}
 
-	checkSignals(&a)
+	if a.TriggersSignal(log, &sentAlerts) {
+		if notifyOnSignals {
+			bot.SendSignal(log, &a)
+		}
+
+		if tradeSignals {
+			order.New(futuresClient, log, &a)
+		}
+
+		// TODO: store triggered alerts based on signal+symbol, not just symbol.
+		sentAlerts[a.Symbol] = a.Side
+	}
 }
 
 func init() {
-	alertOnSignals, tradeSignals, interval = utils.ParseFlags(log)
+	notifyOnSignals, tradeSignals, interval = utils.ParseFlags(log)
 
 	apiKey, secretKey := utils.LoadEnvFile(log)
 
@@ -231,11 +196,11 @@ func main() {
 	}
 
 	log.Info().
-		Bool("signals", alertOnSignals).
+		Bool("signals", notifyOnSignals).
 		Bool("trade", tradeSignals).
 		Msg("🔌 WebSocket initialised!")
 
-	if alertOnSignals || len(alerts) >= 1 {
+	if notifyOnSignals || len(alerts) >= 1 {
 		bot.SendInit(interval, log, len(symbolIntervalPair))
 	}
 
