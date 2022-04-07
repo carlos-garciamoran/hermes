@@ -1,14 +1,10 @@
 package analysis
 
 import (
-	// "hermes/telegram"
-	// "hermes/utils"
-
 	"hermes/utils"
 	"math"
 
 	"github.com/markcheno/go-talib"
-	"github.com/rs/zerolog"
 )
 
 type Asset struct {
@@ -133,7 +129,7 @@ func New(asset *Asset, closes []float64, lastCloseIndex int) Analysis {
 	return a
 }
 
-func (a *Analysis) TriggersAlert(alerts *[]utils.Alert, log zerolog.Logger) bool {
+func (a *Analysis) TriggersAlert(alerts *[]utils.Alert) bool {
 	price, symbol := a.Price, a.Symbol
 
 	// HACK: using a pre-built symbol map (of alerts) may improve performance: O(1) beats O(n)
@@ -154,20 +150,9 @@ func (a *Analysis) TriggersAlert(alerts *[]utils.Alert, log zerolog.Logger) bool
 	return false
 }
 
-func (a *Analysis) TriggersSignal(log zerolog.Logger, sentAlerts *map[string]string) bool {
+func (a *Analysis) TriggersSignal(sentSignals *map[string]string) bool {
 	// Only trade or send alert if there's a signal, a side, and no alert has been sent.
-	if a.Signal_Count >= 1 && a.Side != NA && (*sentAlerts)[a.Symbol] != a.Side {
-		log.Info().
-			Str("EMA_Cross", a.EMA_Cross).
-			Float64("Price", a.Price).
-			Float64("RSI", a.RSI).
-			Str("RSI_Signal", a.RSI_Signal).
-			Uint("Signal_Count", a.Signal_Count).
-			Str("Trend", a.Trend).
-			Str("Side", a.Side).
-			Str("Symbol", a.Asset.BaseAsset).
-			Msg("⚡")
-
+	if a.Signal_Count >= 1 && a.Side != NA && (*sentSignals)[a.Symbol] != a.Side {
 		return true
 	}
 

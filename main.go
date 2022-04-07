@@ -27,7 +27,7 @@ var bot telegram.Bot
 var futuresClient *futures.Client
 var interval string
 var notifyOnSignals bool
-var sentAlerts = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
+var sentSignals = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
 var symbolAssets = make(map[string]analysis.Asset)
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
 var tradeSignals bool
@@ -130,11 +130,28 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 
 	a := analysis.New(&asset, closes, lastCloseIndex)
 
-	if a.TriggersAlert(&alerts, log) {
+	if a.TriggersAlert(&alerts) {
+		log.Info().
+			Float64("Price", a.Price).
+			Float64("RSI", a.RSI).
+			Str("Symbol", a.Asset.BaseAsset).
+			Msg("🔔")
+
 		bot.SendAlert(log, &a)
 	}
 
-	if a.TriggersSignal(log, &sentAlerts) {
+	if a.TriggersSignal(&sentSignals) {
+		log.Info().
+			Str("EMA_Cross", a.EMA_Cross).
+			Float64("Price", a.Price).
+			Float64("RSI", a.RSI).
+			Str("RSI_Signal", a.RSI_Signal).
+			Uint("Signal_Count", a.Signal_Count).
+			Str("Trend", a.Trend).
+			Str("Side", a.Side).
+			Str("Symbol", a.Asset.BaseAsset).
+			Msg("⚡")
+
 		if notifyOnSignals {
 			bot.SendSignal(log, &a)
 		}
@@ -144,7 +161,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 		}
 
 		// TODO: store triggered alerts based on signal+symbol, not just symbol.
-		sentAlerts[a.Symbol] = a.Side
+		sentSignals[a.Symbol] = a.Side
 	}
 }
 
