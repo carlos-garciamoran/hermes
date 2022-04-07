@@ -137,7 +137,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			Str("Symbol", a.Asset.BaseAsset).
 			Msg("🔔")
 
-		bot.SendAlert(log, &a)
+		bot.SendAlert(&a)
 	}
 
 	if a.TriggersSignal(&sentSignals) {
@@ -153,7 +153,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			Msg("⚡")
 
 		if notifyOnSignals {
-			bot.SendSignal(log, &a)
+			bot.SendSignal(&a)
 		}
 
 		if tradeSignals {
@@ -174,7 +174,7 @@ func init() {
 
 	log.Info().Int("count", len(alerts)).Msg("⚙️  Loaded alerts")
 
-	bot = telegram.NewBot(log)
+	bot = telegram.NewBot(&log)
 
 	futuresClient = binance.NewFuturesClient(apiKey, secretKey)
 }
@@ -218,7 +218,7 @@ func main() {
 		Msg("🔌 WebSocket initialised!")
 
 	if notifyOnSignals || len(alerts) >= 1 {
-		bot.SendInit(interval, log, len(symbolIntervalPair))
+		bot.SendInit(interval, len(symbolIntervalPair))
 	}
 
 	<-doneC

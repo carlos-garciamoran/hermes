@@ -13,11 +13,12 @@ import (
 
 type Bot struct {
 	*tgbotapi.BotAPI
+	*zerolog.Logger
 }
 
 var chatID int64
 
-func (bot *Bot) sendMessage(log zerolog.Logger, text *string) {
+func (bot *Bot) sendMessage(text *string) {
 	message := tgbotapi.MessageConfig{
 		BaseChat: tgbotapi.BaseChat{
 			ChatID: chatID,
@@ -28,11 +29,14 @@ func (bot *Bot) sendMessage(log zerolog.Logger, text *string) {
 
 	// NOTE: may want to continue running instead of doing os.Exit()
 	if _, err := bot.Send(message); err != nil {
-		log.Fatal().Str("err", err.Error()).Msg("Crashed sending Telegram init")
+		bot.Fatal().
+			Str("err", err.Error()).
+			Str("text", *text).
+			Msg("Crashed sending Telegram message")
 	}
 }
 
-func NewBot(log zerolog.Logger) Bot {
+func NewBot(log *zerolog.Logger) Bot {
 	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_APITOKEN"))
 	if err != nil {
 		log.Fatal().Str("err", err.Error()).Msg("Crashed creating Telegram bot")
@@ -43,10 +47,10 @@ func NewBot(log zerolog.Logger) Bot {
 		log.Fatal().Str("err", err.Error()).Msg("Error parsing TELEGRAM_CHATID")
 	}
 
-	return Bot{bot}
+	return Bot{bot, log}
 }
 
-func (bot *Bot) SendInit(interval string, log zerolog.Logger, symbolCount int) {
+func (bot *Bot) SendInit(interval string, symbolCount int) {
 	text := fmt.Sprintf(
 		"🍾🍾 *NEW SESSION STARTED* 🍾🍾\n\n"+
 			"    ⏱ interval: >*%s*<\n"+
@@ -54,11 +58,11 @@ func (bot *Bot) SendInit(interval string, log zerolog.Logger, symbolCount int) {
 		interval, symbolCount,
 	)
 
-	bot.sendMessage(log, &text)
+	bot.sendMessage(&text)
 }
 
 // TODO: create sendMessage func.
-func (bot *Bot) SendAlert(log zerolog.Logger, a *analysis.Analysis) {
+func (bot *Bot) SendAlert(a *analysis.Analysis) {
 	text := fmt.Sprintf("🔔 %s\n\n"+
 		"    — Price: *%.3f*\n"+
 		"    — Trend: _%s_ %s\n"+
@@ -66,10 +70,10 @@ func (bot *Bot) SendAlert(log zerolog.Logger, a *analysis.Analysis) {
 		a.Asset.BaseAsset, a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI,
 	)
 
-	bot.sendMessage(log, &text)
+	bot.sendMessage(&text)
 }
 
-func (bot *Bot) SendSignal(log zerolog.Logger, a *analysis.Analysis) {
+func (bot *Bot) SendSignal(a *analysis.Analysis) {
 	text := fmt.Sprintf("⚡️ %s", a.Asset.BaseAsset)
 
 	if a.EMA_Cross != "NA" {
@@ -89,5 +93,5 @@ func (bot *Bot) SendSignal(log zerolog.Logger, a *analysis.Analysis) {
 		a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI, a.Side, analysis.Emojis[a.Side],
 	)
 
-	bot.sendMessage(log, &text)
+	bot.sendMessage(&text)
 }
