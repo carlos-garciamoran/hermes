@@ -20,16 +20,18 @@ import (
 
 const LIMIT int = 200
 
+// CLI flags
+var evaluateSignals, notifyOnSignals, tradeSignals bool
+
 var alerts []utils.Alert
+var alertSymbols []string
 var bot telegram.Bot
 var log zerolog.Logger = utils.InitLogging()
 var futuresClient *futures.Client
 var interval string
-var notifyOnSignals bool
 var sentSignals = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
 var symbolAssets = make(map[string]analysis.Asset)
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
-var tradeSignals bool
 
 func fetchAssets(futuresClient *futures.Client, wg *sync.WaitGroup) map[string]string {
 	symbolIntervalPair := make(map[string]string)
@@ -129,26 +131,26 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 
 	a := analysis.New(&asset, closes, lastCloseIndex)
 
-	if a.TriggersAlert(&alerts) {
-		log.Info().
-			Float64("Price", a.Price).
-			Float64("RSI", a.RSI).
-			Str("Symbol", a.Asset.BaseAsset).
-			Msg("🔔")
+	sublogger := log.With().
+		Float64("Price", a.Price).
+		Float64("RSI", a.RSI).
+		Str("Symbol", a.Asset.BaseAsset).
+		Str("Trend", a.Trend).
+		Logger()
 
-		bot.SendAlert(&a)
+	// TODO: first, check if symbol has alert.
+	if triggersAlert, target := a.TriggersAlert(&alerts); triggersAlert {
+		sublogger.Info().Float64("Target", target).Msg("🔔")
+
+		bot.SendAlert(&a, target)
 	}
 
 	if a.TriggersSignal(&sentSignals) {
-		log.Info().
+		sublogger.Info().
 			Str("EMA_Cross", a.EMA_Cross).
-			Float64("Price", a.Price).
-			Float64("RSI", a.RSI).
 			Str("RSI_Signal", a.RSI_Signal).
 			Uint("Signal_Count", a.Signal_Count).
-			Str("Trend", a.Trend).
 			Str("Side", a.Side).
-			Str("Symbol", a.Asset.BaseAsset).
 			Msg("⚡")
 
 		if notifyOnSignals {
@@ -159,19 +161,23 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			order.New(futuresClient, log, &a)
 		}
 
-		// TODO: store triggered alerts based on signal+symbol, not just symbol.
+		if evaluateSignals {
+			log.Debug().Msg("TODO: create position")
+		}
+
 		sentSignals[a.Symbol] = a.Side
 	}
+
+	// TODO: check if there is a stored alert for the symbol
+	// if {
+	// 		check P&L every 1 hour (12 hours) of open positions
+	// }
 }
 
 func init() {
-	notifyOnSignals, tradeSignals, interval = utils.ParseFlags(log)
+	evaluateSignals, notifyOnSignals, tradeSignals, interval = utils.ParseFlags(log)
 
 	apiKey, secretKey := utils.LoadEnvFile(log)
-
-	alerts = utils.LoadAlerts(log)
-
-	log.Info().Int("count", len(alerts)).Msg("⚙️  Loaded alerts")
 
 	bot = telegram.NewBot(&log)
 
@@ -188,7 +194,9 @@ func main() {
 	go func() {
 		for sig := range c {
 			log.Warn().Str("sig", sig.String()).Msg("Received CTRL-C. Exiting...")
-			bot.SendFinish()
+			if notifyOnSignals || len(alerts) >= 1 {
+				bot.SendFinish()
+			}
 			close(c)
 			os.Exit(1)
 		}
@@ -197,6 +205,9 @@ func main() {
 	log.Info().Str("interval", interval).Msg("💡 Fetching symbols...")
 
 	symbolIntervalPair := fetchAssets(futuresClient, &wg)
+
+	alerts, alertSymbols = utils.LoadAlerts(log, interval, symbolIntervalPair)
+	log.Info().Int("count", len(alerts)).Msg("⚙️  Loaded alerts")
 
 	wg.Wait()
 

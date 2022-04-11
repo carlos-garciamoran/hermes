@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"hermes/utils"
+
 	"math"
 
 	"github.com/markcheno/go-talib"
@@ -129,25 +130,26 @@ func New(asset *Asset, closes []float64, lastCloseIndex int) Analysis {
 	return a
 }
 
-func (a *Analysis) TriggersAlert(alerts *[]utils.Alert) bool {
+func (a *Analysis) TriggersAlert(alerts *[]utils.Alert) (bool, float64) {
 	price, symbol := a.Price, a.Symbol
 
-	// HACK: using a pre-built symbol map (of alerts) may improve performance: O(1) beats O(n)
+	// HACK: use a pre-built symbol map (of alerts) to improve performance: O(1) beats O(n)
 	for i, alert := range *alerts {
 		if alert.Symbol == symbol && !alert.Notified && alert.Type == "price" {
-			triggersAlert := alert.Condition == ">=" && price >= alert.Price ||
-				alert.Condition == "<=" && price <= alert.Price ||
-				alert.Condition == "<" && price < alert.Price ||
-				alert.Condition == ">" && price > alert.Price
+			targetPrice := alert.Price
+			triggersAlert := alert.Condition == ">=" && price >= targetPrice ||
+				alert.Condition == "<=" && price <= targetPrice ||
+				alert.Condition == "<" && price < targetPrice ||
+				alert.Condition == ">" && price > targetPrice
 
 			if triggersAlert {
 				(*alerts)[i].Notified = true
-				return true
+				return true, targetPrice
 			}
 		}
 	}
 
-	return false
+	return false, 0
 }
 
 func (a *Analysis) TriggersSignal(sentSignals *map[string]string) bool {
@@ -159,9 +161,8 @@ func (a *Analysis) TriggersSignal(sentSignals *map[string]string) bool {
 	return false
 }
 
+// TODO: check for EMA cross between 10 & 50
 func (a *Analysis) calculateEMACross() {
-	// TODO: check for EMA cross between 10 & 50
-
 	var cross string = NA
 	var delta [3]int
 	var sum int

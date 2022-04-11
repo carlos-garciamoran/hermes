@@ -43,9 +43,10 @@ func InitLogging() zerolog.Logger {
 	return zerolog.New(io.MultiWriter(consoleOutput, logFile)).With().Timestamp().Logger()
 }
 
-func ParseFlags(log zerolog.Logger) (bool, bool, string) {
+func ParseFlags(log zerolog.Logger) (bool, bool, bool, string) {
 	interval := flag.String("interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 4h, 1d")
-	alertOnSignals := flag.Bool("signals", false, "send signal alerts on Telegram")
+	evaluateSignals := flag.Bool("evaluate", false, "evaluate signals after emitting them")
+	notifyOnSignals := flag.Bool("signals", false, "send signal alerts on Telegram")
 	tradeSignals := flag.Bool("trade", false, "trade signals on Binance USD-M account")
 
 	flag.Parse()
@@ -63,10 +64,12 @@ func ParseFlags(log zerolog.Logger) (bool, bool, string) {
 		os.Exit(2)
 	}
 
-	return *alertOnSignals, *tradeSignals, *interval
+	return *evaluateSignals, *notifyOnSignals, *tradeSignals, *interval
 }
 
-func LoadAlerts(log zerolog.Logger) []Alert {
+func LoadAlerts(log zerolog.Logger, interval string, validSymbols map[string]string) ([]Alert, []string) {
+	var alertSymbols []string
+
 	dat, err := os.ReadFile("./alerts.json")
 	if err != nil {
 		log.Fatal().Msg(err.Error())
@@ -75,7 +78,17 @@ func LoadAlerts(log zerolog.Logger) []Alert {
 	alerts := []Alert{}
 	json.Unmarshal(dat, &alerts)
 
-	return alerts
+	for i, alert := range alerts {
+		symbol := alert.Symbol
+		if !(validSymbols[symbol] == interval) {
+			// Remove alert from array.
+			alerts[i] = alerts[len(alerts)-1]
+			alerts = alerts[:len(alerts)-1]
+			alertSymbols = append(alertSymbols, symbol)
+		}
+	}
+
+	return alerts, alertSymbols
 }
 
 func LoadEnvFile(log zerolog.Logger) (string, string) {

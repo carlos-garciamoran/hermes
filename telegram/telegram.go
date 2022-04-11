@@ -61,13 +61,13 @@ func (bot *Bot) SendInit(interval string, symbolCount int) {
 	bot.sendMessage(&text)
 }
 
-// TODO: create sendMessage func.
-func (bot *Bot) SendAlert(a *analysis.Analysis) {
-	text := fmt.Sprintf("🔔 %s\n\n"+
+// TODO: set float precision based on p.Asset.PricePrecision
+func (bot *Bot) SendAlert(a *analysis.Analysis, target float64) {
+	text := fmt.Sprintf("🔔 *%s* crossed %.3f\n\n"+
 		"    — Price: *%.3f*\n"+
 		"    — Trend: _%s_ %s\n"+
 		"    — RSI: %.2f",
-		a.Asset.BaseAsset, a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI,
+		a.Asset.BaseAsset, target, a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI,
 	)
 
 	bot.sendMessage(&text)
