@@ -52,7 +52,7 @@ func NewBot(log *zerolog.Logger) Bot {
 
 func (bot *Bot) SendInit(interval string, symbolCount int) {
 	text := fmt.Sprintf(
-		"🍾🍾 *NEW SESSION STARTED* 🍾🍾\n\n"+
+		"🍾 *NEW SESSION STARTED* 🍾\n\n"+
 			"    ⏱ interval: >*%s*<\n"+
 			"    🪙 symbols: >*%d*<",
 		interval, symbolCount,
@@ -92,6 +92,12 @@ func (bot *Bot) SendSignal(a *analysis.Analysis) {
 		"    🔮 Side: *%s* %s",
 		a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI, a.Side, analysis.Emojis[a.Side],
 	)
+
+	bot.sendMessage(&text)
+}
+
+func (bot *Bot) SendFinish() {
+	text := "⛔️ *SESSION ENDED* ⛔️"
 
 	bot.sendMessage(&text)
 }

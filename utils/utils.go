@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -21,14 +22,25 @@ type Alert struct {
 }
 
 func InitLogging() zerolog.Logger {
-	zerolog.TimeFieldFormat = time.RFC3339Nano // time.RFC3339, time.RFC822, zerolog.TimeFormatUnix
-	output := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339Nano}
+	t := time.Now()
+	fileName := fmt.Sprintf("./session_%d-%02d-%02dT%02d:%02d:%02d.log",
+		t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(),
+	)
 
-	output.FormatLevel = func(i interface{}) string {
+	logFile, err := os.Create(fileName)
+	if err != nil {
+		fmt.Println("Error: could not create the log file:", err)
+		os.Exit(1)
+	}
+
+	timeFormat := "2006-01-02T15:04:05.9999"
+	zerolog.TimeFieldFormat = timeFormat
+	consoleOutput := zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: timeFormat}
+	consoleOutput.FormatLevel = func(i interface{}) string {
 		return strings.ToUpper(fmt.Sprintf("|%-5s|", i))
 	}
 
-	return zerolog.New(output).With().Timestamp().Logger()
+	return zerolog.New(io.MultiWriter(consoleOutput, logFile)).With().Timestamp().Logger()
 }
 
 func ParseFlags(log zerolog.Logger) (bool, bool, string) {

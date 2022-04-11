@@ -20,10 +20,9 @@ import (
 
 const LIMIT int = 200
 
-var log zerolog.Logger = utils.InitLogging()
-
 var alerts []utils.Alert
 var bot telegram.Bot
+var log zerolog.Logger = utils.InitLogging()
 var futuresClient *futures.Client
 var interval string
 var notifyOnSignals bool
@@ -188,7 +187,8 @@ func main() {
 
 	go func() {
 		for sig := range c {
-			log.Warn().Str("sig", sig.String()).Msg("Received CTRL-C")
+			log.Warn().Str("sig", sig.String()).Msg("Received CTRL-C. Exiting...")
+			bot.SendFinish()
 			close(c)
 			os.Exit(1)
 		}
