@@ -1,5 +1,6 @@
 # Hermes-related
 alerts.json
+main
 *.log
 
 # Binaries for programs and plugins

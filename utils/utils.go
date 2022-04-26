@@ -43,10 +43,11 @@ func InitLogging() zerolog.Logger {
 	return zerolog.New(io.MultiWriter(consoleOutput, logFile)).With().Timestamp().Logger()
 }
 
-func ParseFlags(log zerolog.Logger) (bool, bool, bool, string) {
+func ParseFlags(log zerolog.Logger) (int, bool, bool, bool, string) {
 	interval := flag.String("interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 4h, 1d")
-	evaluateSignals := flag.Bool("evaluate", false, "evaluate signals after emitting them")
+	maxPositions := flag.Int("max-positions", 10, "maximum positions to open")
 	notifyOnSignals := flag.Bool("signals", false, "send signal alerts on Telegram")
+	simulateTrades := flag.Bool("simulate", false, "simulate opening trades when signals are triggered")
 	tradeSignals := flag.Bool("trade", false, "trade signals on Binance USD-M account")
 
 	flag.Parse()
@@ -64,7 +65,7 @@ func ParseFlags(log zerolog.Logger) (bool, bool, bool, string) {
 		os.Exit(2)
 	}
 
-	return *evaluateSignals, *notifyOnSignals, *tradeSignals, *interval
+	return *maxPositions, *notifyOnSignals, *simulateTrades, *tradeSignals, *interval
 }
 
 func LoadAlerts(log zerolog.Logger, interval string, validSymbols map[string]string) ([]Alert, []string) {

@@ -3,6 +3,7 @@ package main
 import (
 	"hermes/analysis"
 	"hermes/order"
+	"hermes/position"
 	"hermes/telegram"
 	"hermes/utils"
 
@@ -21,17 +22,20 @@ import (
 const LIMIT int = 200
 
 // CLI flags
-var evaluateSignals, notifyOnSignals, tradeSignals bool
+var notifyOnSignals, simulatePositions, tradeSignals bool
+var interval string
+var maxPositions int
 
 var alerts []utils.Alert
 var alertSymbols []string
 var bot telegram.Bot
 var log zerolog.Logger = utils.InitLogging()
 var futuresClient *futures.Client
-var interval string
+var simulatedPositions = make(map[string]position.Position)
 var sentSignals = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
 var symbolAssets = make(map[string]analysis.Asset)
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
+var symbolPrices = make(map[string]float64)   // {"BTCUSDT": 40004.75, ...}
 
 func fetchAssets(futuresClient *futures.Client, wg *sync.WaitGroup) map[string]string {
 	symbolIntervalPair := make(map[string]string)
@@ -111,6 +115,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 	}
 
 	price := parsedCandle["Close"]
+	symbolPrices[symbol] = price
 
 	// NOTE: currently, only closes are updated (there may be TA indicators using other OHLC values)
 	closes := symbolCloses[symbol]
@@ -120,6 +125,8 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 
 	// Rotate all candles but the last one (already set above).
 	if k.IsFinal {
+		// TODO: send Telegram text
+		// telegram.SendMessage()
 		// close[0] = close[1], ..., close[199] = parsedCandle["Close"]
 		for i := 0; i < lastCloseIndex; i++ {
 			closes[i] = closes[i+1]
@@ -148,7 +155,6 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 	if a.TriggersSignal(&sentSignals) {
 		sublogger.Info().
 			Str("EMA_Cross", a.EMA_Cross).
-			Str("RSI_Signal", a.RSI_Signal).
 			Uint("Signal_Count", a.Signal_Count).
 			Str("Side", a.Side).
 			Msg("⚡")
@@ -161,21 +167,30 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			order.New(futuresClient, log, &a)
 		}
 
-		if evaluateSignals {
-			log.Debug().Msg("TODO: create position")
+		_, pExists := simulatedPositions[symbol]
+
+		// Only open simulated position if we want to, we haven't reached the limit of positions, and
+		// a position for the symbol has not been opened.
+		if simulatePositions && len(simulatedPositions) <= maxPositions && !pExists {
+			p := position.New(&a)
+			simulatedPositions[symbol] = p
+
+			bot.SendPosition(&p)
+
+			log.Info().
+				Float64("EntryPrice", p.EntryPrice).
+				Str("EntrySignal", p.EntrySignal).
+				Str("Symbol", p.Symbol).
+				Int("Free slots", maxPositions-len(simulatedPositions)).
+				Msg("Opened position")
 		}
 
 		sentSignals[a.Symbol] = a.Side
 	}
-
-	// TODO: check if there is a stored alert for the symbol
-	// if {
-	// 		check P&L every 1 hour (12 hours) of open positions
-	// }
 }
 
 func init() {
-	evaluateSignals, notifyOnSignals, tradeSignals, interval = utils.ParseFlags(log)
+	maxPositions, notifyOnSignals, simulatePositions, tradeSignals, interval = utils.ParseFlags(log)
 
 	apiKey, secretKey := utils.LoadEnvFile(log)
 
@@ -224,13 +239,17 @@ func main() {
 	}
 
 	log.Info().
+		Int("max-positions", maxPositions).
+		Bool("simulate", simulatePositions).
 		Bool("signals", notifyOnSignals).
 		Bool("trade", tradeSignals).
 		Msg("🔌 WebSocket initialised!")
 
 	if notifyOnSignals || len(alerts) >= 1 {
-		bot.SendInit(interval, len(symbolIntervalPair))
+		bot.SendInit(interval, maxPositions, simulatePositions, len(symbolIntervalPair))
 	}
+
+	bot.Listen(&log, symbolPrices)
 
 	<-doneC
 }
