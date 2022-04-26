@@ -108,35 +108,37 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 	for key, value := range rawCandle {
 		parsedValue, err := strconv.ParseFloat(value, 64)
 		if err != nil {
-			log.Fatal().Str(key, value).Msg("Crashed fetching klines")
+			log.Fatal().Str(key, value).Msg("Crashed parsing klines")
 		}
 
 		parsedCandle[key] = parsedValue
 	}
 
 	price := parsedCandle["Close"]
-	symbolPrices[symbol] = price
 
 	// NOTE: currently, only closes are updated (there may be TA indicators using other OHLC values)
 	closes := symbolCloses[symbol]
-	lastCloseIndex := LIMIT - 1
-
-	closes[lastCloseIndex] = price // Update the last candle
+	closes[LIMIT-1] = price // Update the last candle
 
 	// Rotate all candles but the last one (already set above).
 	if k.IsFinal {
-		// TODO: send Telegram text
-		// telegram.SendMessage()
-		// close[0] = close[1], ..., close[199] = parsedCandle["Close"]
-		for i := 0; i < lastCloseIndex; i++ {
+		text := "Updating candles for " + symbol
+		bot.SendMessage(&text)
+
+		// close[0] = close[1], ..., close[198] = close[199]
+		for i := 0; i < LIMIT-1; i++ {
 			closes[i] = closes[i+1]
 		}
 	}
 
-	symbolCloses[symbol] = closes // Update the global map
+	// Update global maps
+	symbolCloses[symbol] = closes
+	symbolPrices[symbol] = price
+
 	asset := symbolAssets[symbol]
 
-	a := analysis.New(&asset, closes, lastCloseIndex)
+	// NOTE: may not need to pass LIMIT (it is len(closes))... might be interesting performance-wise(?)
+	a := analysis.New(&asset, closes, LIMIT-1)
 
 	sublogger := log.With().
 		Float64("Price", a.Price).
@@ -152,7 +154,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 		bot.SendAlert(&a, target)
 	}
 
-	if a.TriggersSignal(&sentSignals) {
+	if a.TriggersSignal(sentSignals) {
 		sublogger.Info().
 			Str("EMA_Cross", a.EMA_Cross).
 			Uint("Signal_Count", a.Signal_Count).
@@ -169,9 +171,9 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 
 		_, pExists := simulatedPositions[symbol]
 
-		// Only open simulated position if we want to, we haven't reached the limit of positions, and
-		// a position for the symbol has not been opened.
-		if simulatePositions && len(simulatedPositions) <= maxPositions && !pExists {
+		// Only open a simulated position if we want to, a position for the symbol has not been opened,
+		// and we haven't reached the limit of positions.
+		if simulatePositions && !pExists && len(simulatedPositions) < maxPositions {
 			p := position.New(&a)
 			simulatedPositions[symbol] = p
 

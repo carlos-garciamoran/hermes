@@ -139,10 +139,9 @@ func (bot *Bot) SendSignal(a *analysis.Analysis) {
 func (bot *Bot) SendPosition(p *position.Position) {
 	text := fmt.Sprintf("💰 Opened *%s* position\n\n"+
 		"    — Entry price: %.3f\n"+
-		"    — Entry signal: %s\n"+
 		"    — Side: *%s* %s\n"+
 		"    — Size: $%.2f\n",
-		p.Symbol, p.EntryPrice, p.EntrySignal, p.Side, analysis.Emojis[p.Side], p.Size,
+		p.Symbol, p.EntryPrice, p.Side, analysis.Emojis[p.Side], p.Size,
 	)
 
 	bot.SendMessage(&text)

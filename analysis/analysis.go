@@ -18,11 +18,11 @@ type Asset struct {
 }
 
 type Analysis struct {
-	Asset        *Asset    // Pointer to the Asset.
-	EMA_005      []float64 // Array to check for cross.
-	EMA_009      []float64 // Array to check for cross.
-	EMA_050      float64   // Current average to read trend.
-	EMA_200      float64   // Current average to read trend.
+	Asset        *Asset
+	EMA_005      []float64 // Array for checking for cross.
+	EMA_009      []float64 // Array for checking for cross.
+	EMA_050      float64   // Latest average for reading the trend.
+	EMA_200      float64   // Latest average for reading the trend.
 	EMA_Cross    string
 	Price        float64
 	RSI          float64 // Rounded to 2 digits.
@@ -94,28 +94,22 @@ var Emojis = map[string]string{
 	OVERSOLD_X3: "📉📉📉",
 }
 
-func New(asset *Asset, closes []float64, lastCloseIndex int) Analysis {
+func New(asset *Asset, closes []float64, lastIndex int) Analysis {
 	a := Analysis{
 		Asset:        asset,
-		EMA_005:      talib.Ema(closes, 5)[lastCloseIndex-2:],
-		EMA_009:      talib.Ema(closes, 9)[lastCloseIndex-2:],
-		EMA_050:      talib.Ema(closes, 50)[lastCloseIndex],
-		EMA_200:      talib.Ema(closes, 200)[lastCloseIndex],
-		Price:        closes[lastCloseIndex],
-		RSI:          math.Round(talib.Rsi(closes, 14)[lastCloseIndex]*100) / 100,
+		EMA_005:      talib.Ema(closes, 5)[lastIndex-2:],
+		EMA_009:      talib.Ema(closes, 9)[lastIndex-2:],
+		EMA_050:      talib.Ema(closes, 50)[lastIndex],
+		EMA_200:      talib.Ema(closes, 200)[lastIndex],
+		EMA_Cross:    NA,
+		Price:        closes[lastIndex],
+		RSI:          math.Round(talib.Rsi(closes, 14)[lastIndex]*100) / 100,
 		Signal_Count: 0,
 		Side:         NA,
 		Symbol:       asset.Symbol,
 	}
 
-	// TODO: REMEMBER EMAs are LAGGING INDICATORS: they should be used as CONFIRMATION
-	// TODO: check for EMA200[x]close cross (reversal signal)
-
 	a.calculateEMACross()
-
-	if a.EMA_Cross != "NA" {
-		a.Signal_Count += 1
-	}
 
 	a.Trend = a.calculateTrend()
 
@@ -131,11 +125,11 @@ func New(asset *Asset, closes []float64, lastCloseIndex int) Analysis {
 }
 
 func (a *Analysis) TriggersAlert(alerts *[]utils.Alert) (bool, float64) {
-	price, symbol := a.Price, a.Symbol
+	price := a.Price
 
 	// HACK: use a pre-built symbol map (of alerts) to improve performance: O(1) beats O(n)
 	for i, alert := range *alerts {
-		if alert.Symbol == symbol && !alert.Notified && alert.Type == "price" {
+		if alert.Symbol == a.Symbol && !alert.Notified && alert.Type == "price" {
 			targetPrice := alert.Price
 			triggersAlert := alert.Condition == ">=" && price >= targetPrice ||
 				alert.Condition == "<=" && price <= targetPrice ||
@@ -152,47 +146,45 @@ func (a *Analysis) TriggersAlert(alerts *[]utils.Alert) (bool, float64) {
 	return false, 0
 }
 
-func (a *Analysis) TriggersSignal(sentSignals *map[string]string) bool {
+func (a *Analysis) TriggersSignal(sentSignals map[string]string) bool {
 	// Only trade or send alert if there's a signal, a side, and no alert has been sent.
-	if a.Signal_Count >= 1 && a.Side != NA && (*sentSignals)[a.Symbol] != a.Side {
+	if a.Signal_Count >= 1 && a.Side != NA && sentSignals[a.Symbol] != a.Side {
 		return true
 	}
 
 	return false
 }
 
+// TODO: check for EMA200[x]close cross (reversal signal)
 // TODO: check for EMA cross between 10 & 50
 func (a *Analysis) calculateEMACross() {
-	var cross string = NA
 	var delta [3]int
-	var sum int
+	sum := 0
 
+	// IDEA: add some margin between EMAs (e.g., distance min >= 0.10%)
 	for i := 0; i < 3; i++ {
 		if a.EMA_005[i] < a.EMA_009[i] {
 			delta[i] = -1
 		} else {
 			delta[i] = 1
 		}
-	}
-
-	for _, v := range delta {
-		sum += v
+		sum += delta[i]
 	}
 
 	// If all deltas are the same ([1,1,1] or [-1,-1,-1]), there can be no cross.
 	if sum%3 != 0 {
-		// Check the cross on the last candle.
+		// Check for the cross on the last candle.
 		if delta[2] == 1 {
-			cross = BULLISH
+			a.EMA_Cross = BULLISH
+			a.Signal_Count += 1
 		} else if delta[2] == -1 {
-			cross = BEARISH
+			a.EMA_Cross = BEARISH
+			a.Signal_Count += 1
 		}
 	}
-
-	a.EMA_Cross = cross
 }
 
-// TODO: give margin to evaluation (< 0.15% distance to EMA should be neutral)
+// TODO: allow some margin to evaluation (< 0.15% distance to EMA should be neutral)
 func (a *Analysis) calculateTrend() string {
 	if a.Price >= a.EMA_050 && a.Price >= a.EMA_200 {
 		return BULLISH_X2
@@ -214,10 +206,14 @@ func (a *Analysis) calculateTrend() string {
 }
 
 func (a *Analysis) chooseSide() {
+	// NOTE: REMEMBER EMAs are LAGGING INDICATORS: they should be used as CONFIRMATION
 	// NOTE: may want to check RSI for confirmation/discard
+
 	if a.Price < a.EMA_200 && a.EMA_Cross == BULLISH {
+		// Buy the undervalued asset gaining bullish momentum.
 		a.Side = BUY
 	} else if a.Price > a.EMA_200 && a.EMA_Cross == BEARISH {
+		// Sell the overvalued asset gaining bearish momentum.
 		a.Side = SELL
 	}
 }
