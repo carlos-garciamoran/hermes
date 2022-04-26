@@ -249,7 +249,7 @@ func main() {
 		bot.SendInit(interval, maxPositions, simulatePositions, len(symbolIntervalPair))
 	}
 
-	bot.Listen(&log, symbolPrices)
+	bot.Listen(symbolPrices)
 
 	<-doneC
 }

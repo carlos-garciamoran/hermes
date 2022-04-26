@@ -7,9 +7,10 @@ import (
 type Position struct {
 	EntryPrice  float64
 	EntrySignal string
-	PNL         float64 // Unrealized
+	PNL         float64 // Unrealized, percentage
+	NetPNL      float64 // Unrealized, USDT
 	Side        string  // One of analysis.BUY, analysis.SELL
-	Size        float64 // In USDT
+	Size        float64 // USDT
 	Symbol      string
 }
 
@@ -19,6 +20,7 @@ func New(a *analysis.Analysis) Position {
 	p := Position{
 		EntryPrice:  a.Price,
 		EntrySignal: a.EMA_Cross + " EMA cross",
+		NetPNL:      0,
 		PNL:         0,
 		Side:        a.Side,
 		Size:        100,
@@ -30,19 +32,20 @@ func New(a *analysis.Analysis) Position {
 	return p
 }
 
-func CalculateTotalPNL(symbolPrices map[string]float64) float64 {
-	totalPNL := 0.0
+func CalculateTotalPNLs(symbolPrices map[string]float64) (float64, float64) {
+	totalPNL, totalNetPNL := 0.0, 0.0
 
 	for _, position := range simulatedPositions {
 		price := symbolPrices[position.Symbol]
 
-		pnl := (price - position.EntryPrice) / position.EntryPrice // Buy
+		pnl := (price - position.EntryPrice) / position.EntryPrice
 		if position.Side == analysis.SELL {
 			pnl = (position.EntryPrice - price) / price
 		}
 
-		totalPNL += (pnl * position.Size)
+		totalPNL += pnl
+		totalNetPNL += (pnl * position.Size)
 	}
 
-	return totalPNL
+	return totalPNL * 100, totalNetPNL
 }

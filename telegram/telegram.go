@@ -51,17 +51,14 @@ func NewBot(log *zerolog.Logger) Bot {
 	return Bot{bot, log}
 }
 
-func (bot *Bot) Listen(log *zerolog.Logger, symbolPrices map[string]float64) {
+func (bot *Bot) Listen(symbolPrices map[string]float64) {
 	updateConfig := tgbotapi.NewUpdate(0)
 	updateConfig.Timeout = 30
 
 	updates := bot.GetUpdatesChan(updateConfig)
 
-	log.Info().
-		Int64("chatID", chatID).
-		Msg("📡 Listening for commands")
+	bot.Info().Int64("chatID", chatID).Msg("📡 Listening for commands")
 
-	// Go through each Telegram update.
 	for update := range updates {
 		if update.Message == nil {
 			continue
@@ -72,35 +69,19 @@ func (bot *Bot) Listen(log *zerolog.Logger, symbolPrices map[string]float64) {
 
 		// Make it private: ignore messages not coming from chatID.
 		if chat.ID != chatID {
-			log.Error().
-				Int64("chat.ID", chat.ID).
-				Msg("Unauthorised access")
+			bot.Error().Int64("chat.ID", chat.ID).Msg("Unauthorised access")
 			continue
 		}
 
-		// Only respond to commands
+		// Only respond to commands.
 		if len(message.Entities) == 1 && message.Entities[0].Type == "bot_command" {
 			command := message.Text
-			log.Debug().
-				Str("command", command).
-				Msg("Command received")
+			bot.Info().Str("text", command).Msg("Received command")
 
 			if command == "/pnl" {
-				emoji := "💸💸💸"
-				totalPNL := position.CalculateTotalPNL(symbolPrices)
-				if totalPNL < 0 {
-					emoji = "⚰️⚰️⚰️"
-				}
+				totalPNL, totalNetPNL := position.CalculateTotalPNLs(symbolPrices)
 
-				resp := fmt.Sprintf("PNL: *$%.2f* %s", totalPNL, emoji)
-				msg := tgbotapi.NewMessage(chatID, resp)
-				msg.ReplyToMessageID = update.Message.MessageID // Reply to the previous message
-
-				if _, err := bot.Send(msg); err != nil {
-					log.Error().
-						Str("err", err.Error()).
-						Msg("Could not send message")
-				}
+				bot.SendPNL(totalPNL, totalNetPNL, update)
 			}
 		}
 	}
@@ -165,6 +146,25 @@ func (bot *Bot) SendPosition(p *position.Position) {
 	)
 
 	bot.SendMessage(&text)
+}
+
+func (bot *Bot) SendPNL(totalPNL float64, totalNetPNL float64, update tgbotapi.Update) {
+	emoji := "💸"
+	if totalPNL < 0 {
+		emoji = "🤬"
+	}
+
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("PNLs %s\n\n"+
+		"- Net: *$%.2f*\n"+
+		"- Raw: *%.2f%%*",
+		emoji, totalPNL, totalNetPNL,
+	))
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ReplyToMessageID = update.Message.MessageID // Reply to the previous message
+
+	if _, err := bot.Send(msg); err != nil {
+		bot.Error().Str("err", err.Error()).Msg("Could not send message")
+	}
 }
 
 func (bot *Bot) SendFinish() {
