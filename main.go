@@ -99,10 +99,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 
 	parsedCandle := make(map[string]float64, 4)
 	rawCandle := map[string]string{
-		"Open":  k.Open,
-		"High":  k.High,
-		"Low":   k.Low,
-		"Close": k.Close,
+		"Open": k.Open, "High": k.High, "Low": k.Low, "Close": k.Close,
 	}
 
 	for key, value := range rawCandle {
@@ -122,13 +119,28 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 
 	// Rotate all candles but the last one (already set above).
 	if k.IsFinal {
-		text := "Updating candles for " + symbol
-		bot.SendMessage(&text)
+		log.Debug().
+			Str("symbol", symbol).
+			Float64("closes[0]", closes[0]).
+			Float64("closes[1]", closes[1]).
+			Float64("closes[198]", closes[198]).
+			Float64("closes[199]", closes[199]).
+			Float64("price", price).
+			Msg("[*] Rotating candles...")
 
 		// close[0] = close[1], ..., close[198] = close[199]
 		for i := 0; i < LIMIT-1; i++ {
 			closes[i] = closes[i+1]
 		}
+
+		log.Debug().
+			Str("symbol", symbol).
+			Float64("closes[0]", closes[0]).
+			Float64("closes[1]", closes[1]).
+			Float64("closes[198]", closes[198]).
+			Float64("closes[199]", closes[199]).
+			Float64("price", price).
+			Msg("[+] Rotated candles...")
 	}
 
 	// Update global maps
@@ -196,7 +208,7 @@ func init() {
 
 	apiKey, secretKey := utils.LoadEnvFile(log)
 
-	bot = telegram.NewBot(&log)
+	bot = telegram.New(&log)
 
 	futuresClient = binance.NewFuturesClient(apiKey, secretKey)
 }
@@ -204,15 +216,15 @@ func init() {
 func main() {
 	var wg sync.WaitGroup
 
-	// Handle CTRL-C (may want to do something on exit)
+	// Handle CTRL-C.
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)
 
 	go func() {
 		for sig := range c {
 			log.Warn().Str("sig", sig.String()).Msg("Received CTRL-C. Exiting...")
-			if notifyOnSignals || len(alerts) >= 1 {
-				bot.SendFinish()
+			if notifyOnSignals || simulatePositions || len(alerts) >= 1 {
+				bot.SendFinish(symbolPrices)
 			}
 			close(c)
 			os.Exit(1)
@@ -223,15 +235,15 @@ func main() {
 
 	symbolIntervalPair := fetchAssets(futuresClient, &wg)
 
-	alerts, alertSymbols = utils.LoadAlerts(log, interval, symbolIntervalPair)
-	log.Info().Int("count", len(alerts)).Msg("⚙️  Loaded alerts")
-
 	wg.Wait()
 
 	// TODO: find better way to wait for the cache to be built before starting the WS
 	time.Sleep(time.Second)
 
 	log.Info().Int("count", len(symbolIntervalPair)).Msg("🪙  Fetched symbols!")
+
+	alerts, alertSymbols = utils.LoadAlerts(log, interval, symbolIntervalPair)
+	log.Info().Int("count", len(alerts)).Msg("⚙️  Loaded alerts")
 
 	errHandler := func(err error) { log.Fatal().Msg(err.Error()) }
 
@@ -247,7 +259,7 @@ func main() {
 		Bool("trade", tradeSignals).
 		Msg("🔌 WebSocket initialised!")
 
-	if notifyOnSignals || len(alerts) >= 1 {
+	if notifyOnSignals || simulatePositions || len(alerts) >= 1 {
 		bot.SendInit(interval, maxPositions, simulatePositions, len(symbolIntervalPair))
 	}
 

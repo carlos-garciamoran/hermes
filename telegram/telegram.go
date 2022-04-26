@@ -19,25 +19,7 @@ type Bot struct {
 
 var chatID int64
 
-func (bot *Bot) SendMessage(text *string) {
-	message := tgbotapi.MessageConfig{
-		BaseChat: tgbotapi.BaseChat{
-			ChatID: chatID,
-		},
-		Text:      *text,
-		ParseMode: tgbotapi.ModeMarkdown,
-	}
-
-	// NOTE: may want to continue running instead of doing os.Exit()
-	if _, err := bot.Send(message); err != nil {
-		bot.Fatal().
-			Str("err", err.Error()).
-			Str("text", *text).
-			Msg("Crashed sending Telegram message")
-	}
-}
-
-func NewBot(log *zerolog.Logger) Bot {
+func New(log *zerolog.Logger) Bot {
 	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_APITOKEN"))
 	if err != nil {
 		log.Fatal().Str("err", err.Error()).Msg("Crashed creating Telegram bot")
@@ -60,57 +42,52 @@ func (bot *Bot) Listen(symbolPrices map[string]float64) {
 	bot.Info().Int64("chatID", chatID).Msg("📡 Listening for commands")
 
 	for update := range updates {
-		if update.Message == nil {
+		message := update.Message
+
+		if update.Message == nil { // Ignore any non-Message updates
 			continue
 		}
 
-		message := update.Message
 		chat := message.Chat
 
-		// Make it private: ignore messages not coming from chatID.
-		if chat.ID != chatID {
+		if chat.ID != chatID { // Make it private: ignore messages not coming from chatID.
 			bot.Error().Int64("chat.ID", chat.ID).Msg("Unauthorised access")
 			continue
 		}
 
-		// Only respond to commands.
-		if len(message.Entities) == 1 && message.Entities[0].Type == "bot_command" {
-			command := message.Text
-			bot.Info().Str("text", command).Msg("Received command")
+		if !message.IsCommand() { // Ignore any non-command Messages
+			continue
+		}
 
-			if command == "/pnl" {
-				totalPNL, totalNetPNL := position.CalculateTotalPNLs(symbolPrices)
+		command := message.Text
+		bot.Info().Str("text", command).Msg("Received command")
 
-				bot.SendPNL(totalPNL, totalNetPNL, update)
-			}
+		if command == "/pnl" {
+			bot.SendPNL(symbolPrices, update)
 		}
 	}
 }
 
 func (bot *Bot) SendInit(interval string, maxPositions int, simulatePositions bool, symbolCount int) {
-	text := fmt.Sprintf(
+	bot.sendMessage(fmt.Sprintf(
 		"🍾 *NEW SESSION STARTED* 🍾\n\n"+
 			"    ⏱ interval: >*%s*<\n"+
 			"    🔝 max positions: >*%d*<\n"+
 			"    📟 simulate: >*%t*<\n"+
 			"    🪙 symbols: >*%d*<",
 		interval, maxPositions, simulatePositions, symbolCount,
-	)
-
-	bot.SendMessage(&text)
+	))
 }
 
 // TODO: set float precision based on p.Asset.PricePrecision
 func (bot *Bot) SendAlert(a *analysis.Analysis, target float64) {
-	text := fmt.Sprintf(
+	bot.sendMessage(fmt.Sprintf(
 		"🔔 *%s* crossed %.3f\n\n"+
 			"    — Price: *%.3f*\n"+
 			"    — Trend: _%s_ %s\n"+
 			"    — RSI: %.2f",
 		a.Asset.BaseAsset, target, a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI,
-	)
-
-	bot.SendMessage(&text)
+	))
 }
 
 func (bot *Bot) SendSignal(a *analysis.Analysis) {
@@ -133,31 +110,20 @@ func (bot *Bot) SendSignal(a *analysis.Analysis) {
 		a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI, a.Side, analysis.Emojis[a.Side],
 	)
 
-	bot.SendMessage(&text)
+	bot.sendMessage(text)
 }
 
 func (bot *Bot) SendPosition(p *position.Position) {
-	text := fmt.Sprintf("💰 Opened *%s* position\n\n"+
+	bot.sendMessage(fmt.Sprintf("💰 Opened *%s* position\n\n"+
 		"    — Entry price: %.3f\n"+
 		"    — Side: *%s* %s\n"+
 		"    — Size: $%.2f\n",
 		p.Symbol, p.EntryPrice, p.Side, analysis.Emojis[p.Side], p.Size,
-	)
-
-	bot.SendMessage(&text)
+	))
 }
 
-func (bot *Bot) SendPNL(totalPNL float64, totalNetPNL float64, update tgbotapi.Update) {
-	emoji := "💸"
-	if totalPNL < 0 {
-		emoji = "🤬"
-	}
-
-	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("PNLs %s\n\n"+
-		"- Net: *$%.2f*\n"+
-		"- Raw: *%.2f%%*",
-		emoji, totalPNL, totalNetPNL,
-	))
+func (bot *Bot) SendPNL(symbolPrices map[string]float64, update tgbotapi.Update) {
+	msg := tgbotapi.NewMessage(chatID, buildPNLReport(symbolPrices))
 	msg.ParseMode = tgbotapi.ModeMarkdown
 	msg.ReplyToMessageID = update.Message.MessageID // Reply to the previous message
 
@@ -166,8 +132,41 @@ func (bot *Bot) SendPNL(totalPNL float64, totalNetPNL float64, update tgbotapi.U
 	}
 }
 
-func (bot *Bot) SendFinish() {
-	text := "⛔️ *SESSION ENDED* ⛔️"
+func (bot *Bot) SendFinish(symbolPrices map[string]float64) {
+	bot.sendMessage("⛔️ *SESSION ENDED* ⛔️\n\n" + buildPNLReport(symbolPrices))
+}
 
-	bot.SendMessage(&text)
+func buildPNLReport(symbolPrices map[string]float64) string {
+	totalPNL, totalNetPNL := position.CalculateTotalPNLs(symbolPrices)
+
+	emoji := "💸"
+	if totalPNL < 0 {
+		emoji = "🤬"
+	}
+
+	return fmt.Sprintf("Unreal PNL %s\n\n"+
+		"    💵 Net: *$%.2f*\n"+
+		"    📐 Raw: *%.2f%%*",
+		emoji, totalPNL, totalNetPNL,
+	)
+}
+
+func (bot *Bot) sendMessage(text string) {
+	message := tgbotapi.MessageConfig{
+		BaseChat: tgbotapi.BaseChat{
+			ChatID: chatID,
+		},
+		Text:      text,
+		ParseMode: tgbotapi.ModeMarkdown,
+	}
+
+	// NOTE: may want to continue running instead of doing os.Exit()
+	// TODO: handle err="Too Many Requests: retry after 39" without exiting
+	if _, err := bot.Send(message); err != nil {
+		fmt.Println(err)
+		bot.Fatal().
+			Str("err", err.Error()).
+			Str("text", text).
+			Msg("Crashed sending Telegram message")
+	}
 }

@@ -9,7 +9,6 @@
     "symbol": "ADAUSDT",
     "type": "price",
     "price": 1.14,
-    
     "condition": ">="
   }
 ]
