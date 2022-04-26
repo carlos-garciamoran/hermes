@@ -1,0 +1,15 @@
+[
+  {
+    "symbol": "SOLUSDT",
+    "type": "price",
+    "price": 130.14,
+    "condition": ">="
+  },
+  {
+    "symbol": "ADAUSDT",
+    "type": "price",
+    "price": 1.14,
+    
+    "condition": ">="
+  }
+]
