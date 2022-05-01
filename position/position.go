@@ -7,8 +7,8 @@ import (
 type Position struct {
 	EntryPrice  float64
 	EntrySignal string
-	PNL         float64 // Unrealized, percentage
 	NetPNL      float64 // Unrealized, USDT
+	PNL         float64 // Unrealized, percentage
 	Side        string  // One of analysis.BUY, analysis.SELL
 	Size        float64 // USDT
 	Symbol      string
@@ -32,20 +32,41 @@ func New(a *analysis.Analysis) Position {
 	return p
 }
 
-func CalculateTotalPNLs(symbolPrices map[string]float64) (float64, float64) {
-	totalPNL, totalNetPNL := 0.0, 0.0
+func CalculateAggregatedPNLs(symbolPrices map[string]float64) (float64, float64) {
+	totalNetPNL, totalPNL := 0.0, 0.0
 
 	for _, position := range simulatedPositions {
-		price := symbolPrices[position.Symbol]
+		pnl := position.calculatePNL(symbolPrices)
 
-		pnl := (price - position.EntryPrice) / position.EntryPrice
-		if position.Side == analysis.SELL {
-			pnl = (position.EntryPrice - price) / price
-		}
-
-		totalPNL += pnl
 		totalNetPNL += (pnl * position.Size)
+		totalPNL += pnl
 	}
 
-	return totalPNL * 100, totalNetPNL
+	return totalNetPNL, totalPNL * 100
+}
+
+func CalculateAllPNLs(symbolPrices map[string]float64) map[string][]float64 {
+	pnls := make(map[string][]float64, len(simulatedPositions))
+
+	for _, position := range simulatedPositions {
+		symbol := position.Symbol
+
+		pnl := position.calculatePNL(symbolPrices)
+
+		pnls[symbol] = append(pnls[symbol], pnl*position.Size, pnl*100)
+	}
+
+	return pnls
+}
+
+func (p *Position) calculatePNL(symbolPrices map[string]float64) float64 {
+	symbol := p.Symbol
+	price := symbolPrices[symbol]
+
+	pnl := (price - p.EntryPrice) / p.EntryPrice
+	if p.Side == analysis.SELL {
+		pnl = (p.EntryPrice - price) / price
+	}
+
+	return pnl
 }

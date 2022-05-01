@@ -119,28 +119,10 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 
 	// Rotate all candles but the last one (already set above).
 	if k.IsFinal {
-		log.Debug().
-			Str("symbol", symbol).
-			Float64("closes[0]", closes[0]).
-			Float64("closes[1]", closes[1]).
-			Float64("closes[198]", closes[198]).
-			Float64("closes[199]", closes[199]).
-			Float64("price", price).
-			Msg("[*] Rotating candles...")
-
 		// close[0] = close[1], ..., close[198] = close[199]
 		for i := 0; i < LIMIT-1; i++ {
 			closes[i] = closes[i+1]
 		}
-
-		log.Debug().
-			Str("symbol", symbol).
-			Float64("closes[0]", closes[0]).
-			Float64("closes[1]", closes[1]).
-			Float64("closes[198]", closes[198]).
-			Float64("closes[199]", closes[199]).
-			Float64("price", price).
-			Msg("[+] Rotated candles...")
 	}
 
 	// Update global maps
@@ -237,7 +219,7 @@ func main() {
 
 	wg.Wait()
 
-	// TODO: find better way to wait for the cache to be built before starting the WS
+	// NOTE: find better way to wait for the cache to be built before starting the WS.
 	time.Sleep(time.Second)
 
 	log.Info().Int("count", len(symbolIntervalPair)).Msg("🪙  Fetched symbols!")
@@ -245,11 +227,15 @@ func main() {
 	alerts, alertSymbols = utils.LoadAlerts(log, interval, symbolIntervalPair)
 	log.Info().Int("count", len(alerts)).Msg("⚙️  Loaded alerts")
 
-	errHandler := func(err error) { log.Fatal().Msg(err.Error()) }
+	errHandler := func(err error) {
+		msg := "WebSocket stream crashed 🧨"
+		bot.SendMessage(msg)
+		log.Fatal().Str("err", err.Error()).Msg(msg)
+	}
 
 	doneC, _, err := futures.WsCombinedKlineServe(symbolIntervalPair, wsKlineHandler, errHandler)
 	if err != nil {
-		log.Fatal().Msg(err.Error())
+		log.Fatal().Str("err", err.Error()).Msg("Crashed calling WsCombinedKlineServe")
 	}
 
 	log.Info().

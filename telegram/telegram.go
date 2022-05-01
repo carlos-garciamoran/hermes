@@ -59,17 +59,20 @@ func (bot *Bot) Listen(symbolPrices map[string]float64) {
 			continue
 		}
 
-		command := message.Text
-		bot.Info().Str("text", command).Msg("Received command")
+		bot.Info().Str("text", message.Text).Msg("Received command")
 
-		if command == "/pnl" {
-			bot.SendPNL(symbolPrices, update)
+		// Extract the command from the Message.
+		switch message.Command() {
+		case "briefing":
+			bot.reportBriefing(symbolPrices, update)
+		case "pnl":
+			bot.reportPNL(symbolPrices, update)
 		}
 	}
 }
 
 func (bot *Bot) SendInit(interval string, maxPositions int, simulatePositions bool, symbolCount int) {
-	bot.sendMessage(fmt.Sprintf(
+	bot.SendMessage(fmt.Sprintf(
 		"🍾 *NEW SESSION STARTED* 🍾\n\n"+
 			"    ⏱ interval: >*%s*<\n"+
 			"    🔝 max positions: >*%d*<\n"+
@@ -81,7 +84,7 @@ func (bot *Bot) SendInit(interval string, maxPositions int, simulatePositions bo
 
 // TODO: set float precision based on p.Asset.PricePrecision
 func (bot *Bot) SendAlert(a *analysis.Analysis, target float64) {
-	bot.sendMessage(fmt.Sprintf(
+	bot.SendMessage(fmt.Sprintf(
 		"🔔 *%s* crossed %.3f\n\n"+
 			"    — Price: *%.3f*\n"+
 			"    — Trend: _%s_ %s\n"+
@@ -110,11 +113,11 @@ func (bot *Bot) SendSignal(a *analysis.Analysis) {
 		a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI, a.Side, analysis.Emojis[a.Side],
 	)
 
-	bot.sendMessage(text)
+	bot.SendMessage(text)
 }
 
 func (bot *Bot) SendPosition(p *position.Position) {
-	bot.sendMessage(fmt.Sprintf("💰 Opened *%s* position\n\n"+
+	bot.SendMessage(fmt.Sprintf("💰 Opened *%s* position\n\n"+
 		"    — Entry price: %.3f\n"+
 		"    — Side: *%s* %s\n"+
 		"    — Size: $%.2f\n",
@@ -122,7 +125,17 @@ func (bot *Bot) SendPosition(p *position.Position) {
 	))
 }
 
-func (bot *Bot) SendPNL(symbolPrices map[string]float64, update tgbotapi.Update) {
+func (bot *Bot) reportBriefing(symbolPrices map[string]float64, update tgbotapi.Update) {
+	msg := tgbotapi.NewMessage(chatID, buildBriefingReport(symbolPrices))
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ReplyToMessageID = update.Message.MessageID // Reply to the previous message
+
+	if _, err := bot.Send(msg); err != nil {
+		bot.Error().Str("err", err.Error()).Msg("Could not send message")
+	}
+}
+
+func (bot *Bot) reportPNL(symbolPrices map[string]float64, update tgbotapi.Update) {
 	msg := tgbotapi.NewMessage(chatID, buildPNLReport(symbolPrices))
 	msg.ParseMode = tgbotapi.ModeMarkdown
 	msg.ReplyToMessageID = update.Message.MessageID // Reply to the previous message
@@ -133,11 +146,38 @@ func (bot *Bot) SendPNL(symbolPrices map[string]float64, update tgbotapi.Update)
 }
 
 func (bot *Bot) SendFinish(symbolPrices map[string]float64) {
-	bot.sendMessage("⛔️ *SESSION ENDED* ⛔️\n\n" + buildPNLReport(symbolPrices))
+	bot.SendMessage("⛔️ *SESSION ENDED* ⛔️\n\n" + buildPNLReport(symbolPrices))
+}
+
+func buildBriefingReport(symbolPrices map[string]float64) string {
+	pnls := position.CalculateAllPNLs(symbolPrices)
+	positionsCount := len(pnls)
+
+	if positionsCount >= 1 {
+		report := fmt.Sprintf("📄 *Briefing* report (%d positions) 📄\n\n", positionsCount)
+
+		for symbol, pnlPair := range pnls {
+			netPNL, rawPNL := pnlPair[0], pnlPair[1]
+			emoji := "💸"
+			if rawPNL < 0 {
+				emoji = "🤬"
+			}
+
+			report += fmt.Sprintf("*%s* %s\n"+
+				"    💵 Net: *$%.2f*\n"+
+				"    📐 Raw: *%.2f%%*\n\n",
+				symbol, emoji, netPNL, rawPNL,
+			)
+		}
+
+		return report
+	}
+
+	return "🧘‍♂️ Nothing to report (no positions opened yet)"
 }
 
 func buildPNLReport(symbolPrices map[string]float64) string {
-	totalPNL, totalNetPNL := position.CalculateTotalPNLs(symbolPrices)
+	totalNetPNL, totalPNL := position.CalculateAggregatedPNLs(symbolPrices)
 
 	emoji := "💸"
 	if totalPNL < 0 {
@@ -151,7 +191,7 @@ func buildPNLReport(symbolPrices map[string]float64) string {
 	)
 }
 
-func (bot *Bot) sendMessage(text string) {
+func (bot *Bot) SendMessage(text string) {
 	message := tgbotapi.MessageConfig{
 		BaseChat: tgbotapi.BaseChat{
 			ChatID: chatID,

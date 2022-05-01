@@ -15,7 +15,8 @@ Hermes is a cryptocurrency scanner with trading bot capabilities (Binance USD-M 
   - simulated while keeping track of PNL
 
 ## Telegram Bot commands
-- `/pnl`: Get the aggregated PNL of all simulated positions.
+- `/briefing`: Get a breakdown of the open positions.
+- `/pnl`: Get the aggregated unrealized PNL of all positions.
 
 ## Usage
 1. Rename `.env.example` to `.env`
