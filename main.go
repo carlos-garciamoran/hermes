@@ -2,17 +2,16 @@ package main
 
 import (
 	"hermes/analysis"
+	"hermes/exchange"
 	"hermes/order"
 	"hermes/position"
 	"hermes/telegram"
 	"hermes/utils"
 
-	"context"
 	"os"
 	"os/signal"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/adshao/go-binance/v2"
 	"github.com/adshao/go-binance/v2/futures"
@@ -22,77 +21,20 @@ import (
 const LIMIT int = 200
 
 // CLI flags
-var notifyOnSignals, simulatePositions, tradeSignals bool
 var interval string
 var maxPositions int
+var notifyOnSignals, simulatePositions, tradeSignals bool
 
 var alerts []utils.Alert
 var alertSymbols []string
 var bot telegram.Bot
-var log zerolog.Logger = utils.InitLogging()
 var futuresClient *futures.Client
+var log zerolog.Logger = utils.InitLogging()
 var simulatedPositions = make(map[string]position.Position)
 var sentSignals = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
 var symbolAssets = make(map[string]analysis.Asset)
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
 var symbolPrices = make(map[string]float64)   // {"BTCUSDT": 40004.75, ...}
-
-func fetchAssets(futuresClient *futures.Client, wg *sync.WaitGroup) map[string]string {
-	symbolIntervalPair := make(map[string]string)
-
-	exchangeInfo, err := futuresClient.NewExchangeInfoService().Do(context.Background())
-	if err != nil {
-		log.Fatal().Str("err", err.Error()).Msg("Crashed getting exchange info")
-	}
-
-	// Filter unwanted symbols (non-USDT, quarterlies, indexes, unactive, and 1000BTTC)
-	for _, rawAsset := range exchangeInfo.Symbols {
-		if rawAsset.QuoteAsset == "USDT" && rawAsset.ContractType == "PERPETUAL" && rawAsset.UnderlyingType == "COIN" &&
-			rawAsset.Status == "TRADING" && rawAsset.BaseAsset != "1000BTTC" {
-
-			symbol := rawAsset.Symbol
-			maxQuantity, _ := strconv.ParseFloat(rawAsset.LotSizeFilter().MaxQuantity, 64)
-			minQuantity, _ := strconv.ParseFloat(rawAsset.LotSizeFilter().MinQuantity, 64)
-
-			symbolAssets[symbol] = analysis.Asset{
-				BaseAsset:         rawAsset.BaseAsset,
-				MaxQuantity:       maxQuantity,
-				MinQuantity:       minQuantity,
-				PricePrecision:    rawAsset.PricePrecision,
-				QuantityPrecision: rawAsset.QuantityPrecision,
-				Symbol:            symbol,
-			}
-
-			symbolIntervalPair[symbol] = interval
-
-			wg.Add(1)
-
-			defer wg.Done()
-			go fetchInitialCloses(futuresClient, symbol, symbolIntervalPair, wg)
-		}
-	}
-
-	return symbolIntervalPair
-}
-
-func fetchInitialCloses(futuresClient *futures.Client, symbol string, symbolIntervalPair map[string]string, wg *sync.WaitGroup) {
-	klines, err := futuresClient.NewKlinesService().
-		Symbol(symbol).Interval(interval).Limit(LIMIT).Do(context.Background())
-	if err != nil {
-		log.Fatal().Str("err", err.Error()).Msg("Crashed fetching klines")
-	}
-
-	// Discard assets with less than LIMIT candles due to impossibility of computing EMA LIMIT.
-	if len(klines) == LIMIT {
-		for i := 0; i < LIMIT; i++ {
-			if close, err := strconv.ParseFloat(klines[i].Close, 64); err == nil {
-				symbolCloses[symbol] = append(symbolCloses[symbol], close)
-			}
-		}
-	} else {
-		delete(symbolIntervalPair, symbol)
-	}
-}
 
 func wsKlineHandler(event *futures.WsKlineEvent) {
 	k, symbol := event.Kline, event.Symbol
@@ -163,11 +105,11 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			order.New(futuresClient, log, &a)
 		}
 
-		_, pExists := simulatedPositions[symbol]
+		_, positionExists := simulatedPositions[symbol]
 
 		// Only open a simulated position if we want to, a position for the symbol has not been opened,
 		// and we haven't reached the limit of positions.
-		if simulatePositions && !pExists && len(simulatedPositions) < maxPositions {
+		if simulatePositions && !positionExists && len(simulatedPositions) < maxPositions {
 			p := position.New(&a)
 			simulatedPositions[symbol] = p
 
@@ -215,12 +157,11 @@ func main() {
 
 	log.Info().Str("interval", interval).Msg("💡 Fetching symbols...")
 
-	symbolIntervalPair := fetchAssets(futuresClient, &wg)
+	symbolIntervalPair := exchange.FetchAssets(
+		futuresClient, interval, LIMIT, &log, symbolAssets, symbolCloses, &wg,
+	)
 
 	wg.Wait()
-
-	// NOTE: find better way to wait for the cache to be built before starting the WS.
-	time.Sleep(time.Second)
 
 	log.Info().Int("count", len(symbolIntervalPair)).Msg("🪙  Fetched symbols!")
 
