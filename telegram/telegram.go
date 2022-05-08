@@ -116,12 +116,21 @@ func (bot *Bot) SendSignal(a *analysis.Analysis) {
 	bot.SendMessage(text)
 }
 
-func (bot *Bot) SendPosition(p *position.Position) {
-	bot.SendMessage(fmt.Sprintf("💰 Opened *%s* position\n\n"+
+func (bot *Bot) SendNewPosition(p *position.Position) {
+	bot.SendMessage(fmt.Sprintf("💡 Opened *%s* | %s %s\n\n"+
 		"    — Entry price: %.3f\n"+
-		"    — Side: *%s* %s\n"+
 		"    — Size: $%.2f\n",
-		p.Symbol, p.EntryPrice, p.Side, analysis.Emojis[p.Side], p.Size,
+		p.Symbol, p.Side, analysis.Emojis[p.Side], p.EntryPrice, p.Size,
+	))
+}
+
+func (bot *Bot) SendClosedPosition(p *position.Position) {
+	emoji := GetPNLEmoji(p.PNL)
+
+	bot.SendMessage(fmt.Sprintf("💰 Closed *%s* %s | %s\n\n"+
+		"    — Exit signal: %s\n"+
+		"    — PNL: *$%.2f* (%.2f%%)\n",
+		p.Symbol, analysis.Emojis[p.Side], emoji, p.ExitSignal, p.NetPNL, p.PNL,
 	))
 }
 
@@ -146,7 +155,7 @@ func (bot *Bot) reportPNL(symbolPrices map[string]float64, update tgbotapi.Updat
 }
 
 func (bot *Bot) SendFinish(symbolPrices map[string]float64) {
-	bot.SendMessage("⛔️ *SESSION ENDED* ⛔️\n\n" + buildPNLReport(symbolPrices))
+	bot.SendMessage("⛔️ *SESSION TERMINATED* ⛔️\n\n" + buildPNLReport(symbolPrices))
 }
 
 func buildBriefingReport(symbolPrices map[string]float64) string {
@@ -158,10 +167,7 @@ func buildBriefingReport(symbolPrices map[string]float64) string {
 
 		for symbol, pnlPair := range pnls {
 			netPNL, rawPNL := pnlPair[0], pnlPair[1]
-			emoji := "💸"
-			if rawPNL < 0 {
-				emoji = "🤬"
-			}
+			emoji := GetPNLEmoji(rawPNL)
 
 			report += fmt.Sprintf("*%s* %s\n"+
 				"    💵 Net: *$%.2f*\n"+
@@ -179,15 +185,10 @@ func buildBriefingReport(symbolPrices map[string]float64) string {
 func buildPNLReport(symbolPrices map[string]float64) string {
 	totalNetPNL, totalPNL := position.CalculateAggregatedPNLs(symbolPrices)
 
-	emoji := "💸"
-	if totalPNL < 0 {
-		emoji = "🤬"
-	}
-
 	return fmt.Sprintf("Unreal PNL %s\n\n"+
 		"    💵 Net: *$%.2f*\n"+
 		"    📐 Raw: *%.2f%%*",
-		emoji, totalPNL, totalNetPNL,
+		GetPNLEmoji(totalPNL), totalPNL, totalNetPNL,
 	)
 }
 
@@ -209,4 +210,12 @@ func (bot *Bot) SendMessage(text string) {
 			Str("text", text).
 			Msg("Crashed sending Telegram message")
 	}
+}
+
+func GetPNLEmoji(pnl float64) string {
+	if pnl > 0 {
+		return "💸"
+	}
+
+	return "🤬"
 }

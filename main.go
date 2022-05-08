@@ -30,7 +30,7 @@ var alertSymbols []string
 var bot telegram.Bot
 var futuresClient *futures.Client
 var log zerolog.Logger = utils.InitLogging()
-var simulatedPositions = make(map[string]position.Position)
+var positions = make(map[string]position.Position)
 var sentSignals = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
 var symbolAssets = make(map[string]analysis.Asset)
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
@@ -83,6 +83,31 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 		Str("Trend", a.Trend).
 		Logger()
 
+	// NOTE: declaration not inlined in `if` so variable is accessible afterwards.
+	p, positionExists := positions[symbol]
+	if positionExists {
+		closed := false
+
+		if price <= p.SL {
+			p.Close(price, "SL")
+			closed = true
+		} else if price > p.TP {
+			p.Close(price, "TP")
+			closed = true
+		}
+
+		if closed {
+			delete(positions, symbol)
+			bot.SendClosedPosition(&p)
+			sublogger.Info().
+				Str("ExitSignal", p.ExitSignal).
+				Float64("NetPNL", p.NetPNL).
+				Float64("PNL", p.PNL).
+				Int("Slots", maxPositions-len(positions)).
+				Msg(telegram.GetPNLEmoji(p.PNL) + " closed position")
+		}
+	}
+
 	// TODO: first, check if symbol has alert.
 	if triggersAlert, target := a.TriggersAlert(&alerts); triggersAlert {
 		sublogger.Info().Float64("Target", target).Msg("🔔")
@@ -105,21 +130,19 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			order.New(futuresClient, log, &a)
 		}
 
-		_, positionExists := simulatedPositions[symbol]
-
 		// Only open a simulated position if we want to, a position for the symbol has not been opened,
 		// and we haven't reached the limit of positions.
-		if simulatePositions && !positionExists && len(simulatedPositions) < maxPositions {
+		if simulatePositions && !positionExists && len(positions) < maxPositions {
 			p := position.New(&a)
-			simulatedPositions[symbol] = p
+			positions[symbol] = p
 
-			bot.SendPosition(&p)
+			bot.SendNewPosition(&p)
 
 			log.Info().
 				Float64("EntryPrice", p.EntryPrice).
 				Str("EntrySignal", p.EntrySignal).
+				Int("Slots", maxPositions-len(positions)).
 				Str("Symbol", p.Symbol).
-				Int("Free slots", maxPositions-len(simulatedPositions)).
 				Msg("Opened position")
 		}
 
