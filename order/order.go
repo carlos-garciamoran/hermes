@@ -1,10 +1,10 @@
 package order
 
 import (
-	"hermes/analysis"
-
 	"context"
 	"strconv"
+
+	"hermes/analysis"
 
 	"github.com/adshao/go-binance/v2/futures"
 	"github.com/rs/zerolog"

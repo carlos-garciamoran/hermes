@@ -1,9 +1,9 @@
 package analysis
 
 import (
-	"hermes/utils"
-
 	"math"
+
+	"hermes/utils"
 
 	"github.com/markcheno/go-talib"
 )
@@ -33,7 +33,7 @@ type Analysis struct {
 	Trend        string // Based on EMA_050, EMA_200, and Price.
 }
 
-// Constant value for neutral signal (EMA_Trend and RSI_Signal).
+// Constant value for neutral signal (EMA_Cross, EMA_Trend and RSI_Signal).
 const (
 	NA = "NA"
 )

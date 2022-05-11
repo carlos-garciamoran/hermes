@@ -2,9 +2,10 @@ package exchange
 
 import (
 	"context"
-	"hermes/analysis"
 	"strconv"
 	"sync"
+
+	"hermes/analysis"
 
 	"github.com/adshao/go-binance/v2/futures"
 	"github.com/rs/zerolog"
