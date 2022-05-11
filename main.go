@@ -1,17 +1,17 @@
 package main
 
 import (
+	"os"
+	"os/signal"
+	"strconv"
+	"sync"
+
 	"hermes/analysis"
 	"hermes/exchange"
 	"hermes/order"
 	"hermes/position"
 	"hermes/telegram"
 	"hermes/utils"
-
-	"os"
-	"os/signal"
-	"strconv"
-	"sync"
 
 	"github.com/adshao/go-binance/v2"
 	"github.com/adshao/go-binance/v2/futures"
@@ -30,7 +30,7 @@ var alertSymbols []string
 var bot telegram.Bot
 var futuresClient *futures.Client
 var log zerolog.Logger = utils.InitLogging()
-var positions = make(map[string]position.Position)
+var openPositions = make(map[string]position.Position)
 var sentSignals = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
 var symbolAssets = make(map[string]analysis.Asset)
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
@@ -84,7 +84,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 		Logger()
 
 	// NOTE: declaration not inlined in `if` so variable is accessible afterwards.
-	p, positionExists := positions[symbol]
+	p, positionExists := openPositions[symbol]
 	if positionExists {
 		closed := false
 
@@ -97,13 +97,13 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 		}
 
 		if closed {
-			delete(positions, symbol)
+			delete(openPositions, symbol)
 			bot.SendClosedPosition(&p)
 			sublogger.Info().
 				Str("ExitSignal", p.ExitSignal).
 				Float64("NetPNL", p.NetPNL).
 				Float64("PNL", p.PNL).
-				Int("Slots", maxPositions-len(positions)).
+				Int("Slots", maxPositions-len(openPositions)).
 				Msg(telegram.GetPNLEmoji(p.PNL) + " closed position")
 		}
 	}
@@ -132,17 +132,19 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 
 		// Only open a simulated position if we want to, a position for the symbol has not been opened,
 		// and we haven't reached the limit of positions.
-		if simulatePositions && !positionExists && len(positions) < maxPositions {
+		if simulatePositions && !positionExists && len(openPositions) < maxPositions {
 			p := position.New(&a)
-			positions[symbol] = p
+			openPositions[symbol] = p
 
 			bot.SendNewPosition(&p)
 
 			log.Info().
 				Float64("EntryPrice", p.EntryPrice).
 				Str("EntrySignal", p.EntrySignal).
-				Int("Slots", maxPositions-len(positions)).
+				Int("Slots", maxPositions-len(openPositions)).
 				Str("Symbol", p.Symbol).
+				Float64("SL", p.SL).
+				Float64("TP", p.TP).
 				Msg("Opened position")
 		}
 

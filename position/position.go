@@ -2,19 +2,20 @@ package position
 
 import (
 	"fmt"
+
 	"hermes/analysis"
 )
 
 // TODO: move to a variable set elsewhere. Do not hardcode!
 // NOTE: these should work for 4h.
-const SL float64 = 0.1
-const TP float64 = 0.5
+const SL float64 = 0.01
+const TP float64 = 0.04
 
 type Position struct {
 	EntryPrice  float64 // Price returned by the exchange (USDT)
 	EntrySignal string
 	ExitPrice   float64 // Price returned by the exchange (USDT)
-	ExitSignal  string
+	ExitSignal  string  // "SL", "TP". may be an indicator in the future.
 	NetPNL      float64 // Unrealized (USDT)
 	PNL         float64 // Unrealized (percentage)
 	Side        string  // One of [analysis.BUY, analysis.SELL]
@@ -24,26 +25,31 @@ type Position struct {
 	TP          float64 // Target take profit (USDT)
 }
 
-var simulatedPositions []Position
+var allPositions []Position
+var openPositions []Position
 
+// TODO: set SL and TP targets according to asset's price precision.
 func New(a *analysis.Analysis) Position {
-	// TODO: calculate TP & SL
 	price := a.Price
+
+	sl, tp := calculateSL_TP(a)
+
 	p := Position{
 		EntryPrice:  price,
 		EntrySignal: a.EMA_Cross + " EMA cross",
 		ExitPrice:   0,
-		ExitSignal:  "", // Temporary, may be an indicator in the future.
+		ExitSignal:  "",
 		NetPNL:      0,
 		PNL:         0,
 		Side:        a.Side,
 		Size:        100,
 		Symbol:      a.Symbol,
-		SL:          price - (price * SL),
-		TP:          price + (price * TP),
+		SL:          sl,
+		TP:          tp,
 	}
 
-	simulatedPositions = append(simulatedPositions, p)
+	allPositions = append(allPositions, p)
+	openPositions = append(openPositions, p)
 
 	return p
 }
@@ -51,7 +57,7 @@ func New(a *analysis.Analysis) Position {
 func CalculateAggregatedPNLs(symbolPrices map[string]float64) (float64, float64) {
 	totalNetPNL, totalPNL := 0.0, 0.0
 
-	for _, position := range simulatedPositions {
+	for _, position := range openPositions {
 		pnl := position.calculatePNL(symbolPrices[position.Symbol])
 
 		totalNetPNL += (pnl * position.Size)
@@ -62,9 +68,9 @@ func CalculateAggregatedPNLs(symbolPrices map[string]float64) (float64, float64)
 }
 
 func CalculateAllPNLs(symbolPrices map[string]float64) map[string][]float64 {
-	pnls := make(map[string][]float64, len(simulatedPositions))
+	pnls := make(map[string][]float64, len(openPositions))
 
-	for _, position := range simulatedPositions {
+	for _, position := range openPositions {
 		symbol := position.Symbol
 
 		pnl := position.calculatePNL(symbolPrices[symbol])
@@ -75,15 +81,31 @@ func CalculateAllPNLs(symbolPrices map[string]float64) map[string][]float64 {
 	return pnls
 }
 
+// TODO: remove Position object from openPositions.
 func (p *Position) Close(exitPrice float64, exitSignal string) {
+	// TODO: make sure Position is updated in allPositions
+
 	fmt.Println(p)
+	fmt.Println(allPositions)
+	fmt.Println(openPositions)
 
 	p.ExitPrice, p.ExitSignal = exitPrice, exitSignal
 
 	p.PNL = p.calculatePNL(exitPrice)
 	p.NetPNL = p.PNL * p.Size
 
+	// Find and remove position from slice.
+	for i := 0; i < len(openPositions); i++ {
+		if p == &openPositions[i] {
+			openPositions[i] = openPositions[len(openPositions)-1]
+			openPositions = openPositions[:len(openPositions)-1]
+			break
+		}
+	}
+
 	fmt.Println(p)
+	fmt.Println(allPositions)
+	fmt.Println(openPositions)
 }
 
 func (p *Position) calculatePNL(price float64) float64 {
@@ -92,4 +114,12 @@ func (p *Position) calculatePNL(price float64) float64 {
 	}
 
 	return (p.EntryPrice - price) / price
+}
+
+func calculateSL_TP(a *analysis.Analysis) (float64, float64) {
+	if a.Side == analysis.BUY {
+		return a.Price - (a.Price * SL), a.Price + (a.Price * TP)
+	}
+
+	return a.Price - (a.Price * SL), a.Price + (a.Price * TP)
 }

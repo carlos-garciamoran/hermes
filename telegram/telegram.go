@@ -1,12 +1,12 @@
 package telegram
 
 import (
-	"hermes/analysis"
-	"hermes/position"
-
 	"fmt"
 	"os"
 	"strconv"
+
+	"hermes/analysis"
+	"hermes/position"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/rs/zerolog"
@@ -51,7 +51,10 @@ func (bot *Bot) Listen(symbolPrices map[string]float64) {
 		chat := message.Chat
 
 		if chat.ID != chatID { // Make it private: ignore messages not coming from chatID.
-			bot.Error().Int64("chat.ID", chat.ID).Msg("Unauthorised access")
+			bot.Error().
+				Int64("ID", chat.ID).
+				Str("UserName", chat.UserName).
+				Msg("Unauthorised access")
 			continue
 		}
 
@@ -61,7 +64,7 @@ func (bot *Bot) Listen(symbolPrices map[string]float64) {
 
 		bot.Info().Str("text", message.Text).Msg("Received command")
 
-		// Extract the command from the Message.
+		// Extract the command.
 		switch message.Command() {
 		case "briefing":
 			bot.reportBriefing(symbolPrices, update)
@@ -119,8 +122,9 @@ func (bot *Bot) SendSignal(a *analysis.Analysis) {
 func (bot *Bot) SendNewPosition(p *position.Position) {
 	bot.SendMessage(fmt.Sprintf("💡 Opened *%s* | %s %s\n\n"+
 		"    — Entry price: %.3f\n"+
-		"    — Size: $%.2f\n",
-		p.Symbol, p.Side, analysis.Emojis[p.Side], p.EntryPrice, p.Size,
+		"    — Size: $%.2f\n"+
+		"    — SL/TP: %.2f / %.2f\n",
+		p.Symbol, p.Side, analysis.Emojis[p.Side], p.EntryPrice, p.Size, p.SL, p.TP,
 	))
 }
 
