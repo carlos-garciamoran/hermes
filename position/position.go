@@ -25,16 +25,16 @@ type Position struct {
 	TP          float64 // Target take profit (USDT)
 }
 
-var allPositions []Position
-var openPositions []Position
+var allPositions []*Position
+var openPositions []*Position
 
 // TODO: set SL and TP targets according to asset's price precision.
-func New(a *analysis.Analysis) Position {
+func New(a *analysis.Analysis) *Position {
 	price := a.Price
 
 	sl, tp := calculateSL_TP(a)
 
-	p := Position{
+	p := &Position{
 		EntryPrice:  price,
 		EntrySignal: a.EMA_Cross + " EMA cross",
 		ExitPrice:   0,
@@ -81,14 +81,7 @@ func CalculateAllPNLs(symbolPrices map[string]float64) map[string][]float64 {
 	return pnls
 }
 
-// TODO: remove Position object from openPositions.
 func (p *Position) Close(exitPrice float64, exitSignal string) {
-	// TODO: make sure Position is updated in allPositions
-
-	fmt.Println(p)
-	fmt.Println(allPositions)
-	fmt.Println(openPositions)
-
 	p.ExitPrice, p.ExitSignal = exitPrice, exitSignal
 
 	p.PNL = p.calculatePNL(exitPrice)
@@ -96,16 +89,13 @@ func (p *Position) Close(exitPrice float64, exitSignal string) {
 
 	// Find and remove position from slice.
 	for i := 0; i < len(openPositions); i++ {
-		if p == &openPositions[i] {
+		if p == openPositions[i] {
+			fmt.Println("FOUND POSITION")
 			openPositions[i] = openPositions[len(openPositions)-1]
 			openPositions = openPositions[:len(openPositions)-1]
 			break
 		}
 	}
-
-	fmt.Println(p)
-	fmt.Println(allPositions)
-	fmt.Println(openPositions)
 }
 
 func (p *Position) calculatePNL(price float64) float64 {

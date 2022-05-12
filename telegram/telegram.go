@@ -33,7 +33,7 @@ func New(log *zerolog.Logger) Bot {
 	return Bot{bot, log}
 }
 
-func (bot *Bot) Listen(symbolPrices map[string]float64) {
+func (bot *Bot) Listen(netPNL *float64, symbolPrices map[string]float64) {
 	updateConfig := tgbotapi.NewUpdate(0)
 	updateConfig.Timeout = 30
 
@@ -69,7 +69,9 @@ func (bot *Bot) Listen(symbolPrices map[string]float64) {
 		case "briefing":
 			bot.reportBriefing(symbolPrices, update)
 		case "pnl":
-			bot.reportPNL(symbolPrices, update)
+			bot.reportNetPNL(*netPNL, update)
+		case "upnl":
+			bot.reportUnrealizedPNL(symbolPrices, update)
 		}
 	}
 }
@@ -119,22 +121,31 @@ func (bot *Bot) SendSignal(a *analysis.Analysis) {
 	bot.SendMessage(text)
 }
 
+// TODO: set float precision based on p.Asset.PricePrecision
 func (bot *Bot) SendNewPosition(p *position.Position) {
 	bot.SendMessage(fmt.Sprintf("💡 Opened *%s* | %s %s\n\n"+
-		"    — Entry price: %.3f\n"+
-		"    — Size: $%.2f\n"+
-		"    — SL/TP: %.2f / %.2f\n",
-		p.Symbol, p.Side, analysis.Emojis[p.Side], p.EntryPrice, p.Size, p.SL, p.TP,
+		"    🖋 Entry @ %.3f\n"+
+		"    🧨 SL: %f (%.2f%%)\n"+
+		"    💎 TP: %f (%.2f%%)",
+		p.Symbol, p.Side, analysis.Emojis[p.Side],
+		p.EntryPrice,
+		p.SL, position.SL*100,
+		p.TP, position.TP*100,
 	))
 }
 
 func (bot *Bot) SendClosedPosition(p *position.Position) {
-	emoji := GetPNLEmoji(p.PNL)
+	pnlEmoji := GetPNLEmoji(p.PNL)
+	exitEmoji := map[string]string{"SL": "🧨", "TP": "💵"}[p.ExitSignal]
 
-	bot.SendMessage(fmt.Sprintf("💰 Closed *%s* %s | %s\n\n"+
-		"    — Exit signal: %s\n"+
-		"    — PNL: *$%.2f* (%.2f%%)\n",
-		p.Symbol, analysis.Emojis[p.Side], emoji, p.ExitSignal, p.NetPNL, p.PNL,
+	bot.SendMessage(fmt.Sprintf("%s Closed *%s* | %s\n\n"+
+		"    🖋 Exit @ %.3f\n"+
+		"    %s *%s* hit\n"+
+		"    💰 PNL: *$%.2f* (%.2f%%)",
+		pnlEmoji, p.Symbol, analysis.Emojis[p.Side],
+		p.ExitPrice,
+		exitEmoji, p.ExitSignal,
+		p.NetPNL, p.PNL*100,
 	))
 }
 
@@ -148,7 +159,22 @@ func (bot *Bot) reportBriefing(symbolPrices map[string]float64, update tgbotapi.
 	}
 }
 
-func (bot *Bot) reportPNL(symbolPrices map[string]float64, update tgbotapi.Update) {
+// TODO: abstract report* methods
+func (bot *Bot) reportNetPNL(netPNL float64, update tgbotapi.Update) {
+	msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Net PNL %s\n\n"+
+		"    💵 *$%.2f*\n",
+		GetPNLEmoji(netPNL), netPNL,
+	))
+
+	msg.ParseMode = tgbotapi.ModeMarkdown
+	msg.ReplyToMessageID = update.Message.MessageID // Reply to the previous message
+
+	if _, err := bot.Send(msg); err != nil {
+		bot.Error().Str("err", err.Error()).Msg("Could not send message")
+	}
+}
+
+func (bot *Bot) reportUnrealizedPNL(symbolPrices map[string]float64, update tgbotapi.Update) {
 	msg := tgbotapi.NewMessage(chatID, buildPNLReport(symbolPrices))
 	msg.ParseMode = tgbotapi.ModeMarkdown
 	msg.ReplyToMessageID = update.Message.MessageID // Reply to the previous message
@@ -167,15 +193,15 @@ func buildBriefingReport(symbolPrices map[string]float64) string {
 	positionsCount := len(pnls)
 
 	if positionsCount >= 1 {
-		report := fmt.Sprintf("📄 *Briefing* report (%d positions) 📄\n\n", positionsCount)
+		report := fmt.Sprintf("📄 *Briefing* report (%d open positions) 📄\n\n", positionsCount)
 
 		for symbol, pnlPair := range pnls {
 			netPNL, rawPNL := pnlPair[0], pnlPair[1]
 			emoji := GetPNLEmoji(rawPNL)
 
 			report += fmt.Sprintf("*%s* %s\n"+
-				"    💵 Net: *$%.2f*\n"+
-				"    📐 Raw: *%.2f%%*\n\n",
+				"    💵 Net uPNL: *$%.2f*\n"+
+				"    📐 Raw uPNL: *%.2f%%*\n\n",
 				symbol, emoji, netPNL, rawPNL,
 			)
 		}
@@ -183,7 +209,7 @@ func buildBriefingReport(symbolPrices map[string]float64) string {
 		return report
 	}
 
-	return "🧘‍♂️ Nothing to report (no positions opened yet)"
+	return "🧘‍♂️ No open positions to report"
 }
 
 func buildPNLReport(symbolPrices map[string]float64) string {
@@ -216,6 +242,7 @@ func (bot *Bot) SendMessage(text string) {
 	}
 }
 
+// TODO: turn function into map (keys being True and False)
 func GetPNLEmoji(pnl float64) string {
 	if pnl > 0 {
 		return "💸"

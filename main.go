@@ -30,7 +30,8 @@ var alertSymbols []string
 var bot telegram.Bot
 var futuresClient *futures.Client
 var log zerolog.Logger = utils.InitLogging()
-var openPositions = make(map[string]position.Position)
+var netPNL float64 = 0.0
+var openPositions = make(map[string]*position.Position)
 var sentSignals = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
 var symbolAssets = make(map[string]analysis.Asset)
 var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
@@ -88,17 +89,19 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 	if positionExists {
 		closed := false
 
-		if price <= p.SL {
+		// Check if position should be closed according to side and SL/TP.
+		if p.Side == analysis.BUY && price <= p.SL || p.Side == analysis.SELL && price >= p.SL {
 			p.Close(price, "SL")
 			closed = true
-		} else if price > p.TP {
+		} else if p.Side == analysis.BUY && price >= p.TP || p.Side == analysis.SELL && price <= p.TP {
 			p.Close(price, "TP")
 			closed = true
 		}
 
 		if closed {
+			netPNL += p.NetPNL
 			delete(openPositions, symbol)
-			bot.SendClosedPosition(&p)
+			bot.SendClosedPosition(p)
 			sublogger.Info().
 				Str("ExitSignal", p.ExitSignal).
 				Float64("NetPNL", p.NetPNL).
@@ -136,11 +139,10 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			p := position.New(&a)
 			openPositions[symbol] = p
 
-			bot.SendNewPosition(&p)
+			bot.SendNewPosition(p)
 
 			log.Info().
 				Float64("EntryPrice", p.EntryPrice).
-				Str("EntrySignal", p.EntrySignal).
 				Int("Slots", maxPositions-len(openPositions)).
 				Str("Symbol", p.Symbol).
 				Float64("SL", p.SL).
@@ -215,7 +217,7 @@ func main() {
 		bot.SendInit(interval, maxPositions, simulatePositions, len(symbolIntervalPair))
 	}
 
-	bot.Listen(symbolPrices)
+	bot.Listen(&netPNL, symbolPrices)
 
 	<-doneC
 }
