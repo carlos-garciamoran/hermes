@@ -43,9 +43,10 @@ func InitLogging() zerolog.Logger {
 	return zerolog.New(io.MultiWriter(consoleOutput, logFile)).With().Timestamp().Logger()
 }
 
-func ParseFlags(log zerolog.Logger) (int, bool, bool, bool, string) {
-	interval := flag.String("interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 4h, 1d")
-	maxPositions := flag.Int("max-positions", 10, "maximum positions to open")
+func ParseFlags(log zerolog.Logger) (float64, string, int, bool, bool, bool) {
+	balance := flag.Float64("balance", 100, "initial balance to simulate trading (ignored when trade=true)")
+	interval := flag.String("interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 1d")
+	maxPositions := flag.Int("max-positions", 5, "maximum positions to open")
 	notifyOnSignals := flag.Bool("signals", false, "send signal alerts on Telegram")
 	simulateTrades := flag.Bool("simulate", false, "simulate opening trades when signals are triggered")
 	tradeSignals := flag.Bool("trade", false, "trade signals on Binance USD-M account")
@@ -53,7 +54,7 @@ func ParseFlags(log zerolog.Logger) (int, bool, bool, bool, string) {
 	flag.Parse()
 
 	intervalIsValid := false
-	validIntervals := []string{"1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"}
+	validIntervals := []string{"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"}
 	for _, valid_interval := range validIntervals {
 		if *interval == valid_interval {
 			intervalIsValid = true
@@ -65,7 +66,7 @@ func ParseFlags(log zerolog.Logger) (int, bool, bool, bool, string) {
 		os.Exit(2)
 	}
 
-	return *maxPositions, *notifyOnSignals, *simulateTrades, *tradeSignals, *interval
+	return *balance, *interval, *maxPositions, *notifyOnSignals, *simulateTrades, *tradeSignals
 }
 
 func LoadAlerts(log zerolog.Logger, interval string, validSymbols map[string]string) ([]Alert, []string) {
@@ -92,11 +93,9 @@ func LoadAlerts(log zerolog.Logger, interval string, validSymbols map[string]str
 	return alerts, alertSymbols
 }
 
-func LoadEnvFile(log zerolog.Logger) (string, string) {
+func LoadEnvFile(log zerolog.Logger) {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal().Str("err", err.Error()).Msg("Crashed loading .env file")
 	}
-
-	return os.Getenv("BINANCE_APIKEY"), os.Getenv("BINANCE_SECRETKEY")
 }

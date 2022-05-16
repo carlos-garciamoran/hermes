@@ -76,3 +76,8 @@ func FetchAssets(
 
 	return symbolIntervalPair
 }
+
+// TODO: fetch and parse balance from Binance.
+func FetchBalance() float64 {
+	return 1337.00
+}

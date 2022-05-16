@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"sync"
 
+	"hermes/account"
 	"hermes/analysis"
 	"hermes/exchange"
 	"hermes/order"
@@ -21,21 +22,22 @@ import (
 const LIMIT int = 200
 
 // CLI flags
+var initialBalance float64
 var interval string
 var maxPositions int
 var notifyOnSignals, simulatePositions, tradeSignals bool
 
+var acct account.Account
 var alerts []utils.Alert
 var alertSymbols []string
 var bot telegram.Bot
 var futuresClient *futures.Client
 var log zerolog.Logger = utils.InitLogging()
-var netPNL float64 = 0.0
-var openPositions = make(map[string]*position.Position)
-var sentSignals = make(map[string]string) // {"BTCUSDT": "bullish|bearish", ...}
-var symbolAssets = make(map[string]analysis.Asset)
-var symbolCloses = make(map[string][]float64) // {"BTCUSDT": [40004.75, ...], ...}
-var symbolPrices = make(map[string]float64)   // {"BTCUSDT": 40004.75, ...}
+var openPositions = make(map[string]*position.Position) // Used to easily add/delete open positions.
+var sentSignals = make(map[string]string)               // {"BTCUSDT": "bullish|bearish", ...}
+var symbolAssets = make(map[string]analysis.Asset)      // Maps a symbol's string to its asset
+var symbolCloses = make(map[string][]float64)           // {"BTCUSDT": [40004.75, ...], ...}
+var symbolPrices = make(map[string]float64)             // {"BTCUSDT": 40004.75, ...}
 
 func wsKlineHandler(event *futures.WsKlineEvent) {
 	k, symbol := event.Kline, event.Symbol
@@ -85,29 +87,40 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 		Logger()
 
 	// NOTE: declaration not inlined in `if` so variable is accessible afterwards.
-	p, positionExists := openPositions[symbol]
-	if positionExists {
+	p, hasPositionWithSymbol := openPositions[symbol]
+	if hasPositionWithSymbol {
 		closed := false
 
 		// Check if position should be closed according to side and SL/TP.
 		if p.Side == analysis.BUY && price <= p.SL || p.Side == analysis.SELL && price >= p.SL {
+			closed = true
 			p.Close(price, "SL")
-			closed = true
 		} else if p.Side == analysis.BUY && price >= p.TP || p.Side == analysis.SELL && price <= p.TP {
-			p.Close(price, "TP")
 			closed = true
+			p.Close(price, "TP")
 		}
 
 		if closed {
-			netPNL += p.NetPNL
+			acct.LogClosedPosition(p)
+
 			delete(openPositions, symbol)
+
 			bot.SendClosedPosition(p)
+
 			sublogger.Info().
 				Str("ExitSignal", p.ExitSignal).
 				Float64("NetPNL", p.NetPNL).
 				Float64("PNL", p.PNL).
 				Int("Slots", maxPositions-len(openPositions)).
 				Msg(telegram.GetPNLEmoji(p.PNL) + " closed position")
+
+			log.Info().
+				Float64("AllocatedBalance", acct.AllocatedBalance).
+				Float64("AvailableBalance", acct.AvailableBalance).
+				Float64("NetPNL", acct.NetPNL).
+				Int("Loses", acct.Loses).
+				Int("Wins", acct.Wins).
+				Msg("📄")
 		}
 	}
 
@@ -129,20 +142,26 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			bot.SendSignal(&a)
 		}
 
+		targetSize := acct.TotalBalance / float64(maxPositions)
+		hasAvailableBalance := acct.AvailableBalance >= targetSize
+		hasFreeSlot := len(openPositions) < maxPositions
+
 		if tradeSignals {
 			order.New(futuresClient, log, &a)
 		}
 
-		// Only open a simulated position if we want to, a position for the symbol has not been opened,
-		// and we haven't reached the limit of positions.
-		if simulatePositions && !positionExists && len(openPositions) < maxPositions {
-			p := position.New(&a)
+		if !hasPositionWithSymbol && hasAvailableBalance && hasFreeSlot && simulatePositions {
+			p := position.New(&a, targetSize)
+
+			acct.LogNewPosition(p)
+
 			openPositions[symbol] = p
 
 			bot.SendNewPosition(p)
 
 			log.Info().
 				Float64("EntryPrice", p.EntryPrice).
+				Float64("Size", p.Size).
 				Int("Slots", maxPositions-len(openPositions)).
 				Str("Symbol", p.Symbol).
 				Float64("SL", p.SL).
@@ -155,13 +174,20 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 }
 
 func init() {
-	maxPositions, notifyOnSignals, simulatePositions, tradeSignals, interval = utils.ParseFlags(log)
+	initialBalance, interval, maxPositions, notifyOnSignals, simulatePositions, tradeSignals = utils.ParseFlags(log)
 
-	apiKey, secretKey := utils.LoadEnvFile(log)
+	utils.LoadEnvFile(log)
 
 	bot = telegram.New(&log)
 
-	futuresClient = binance.NewFuturesClient(apiKey, secretKey)
+	futuresClient = binance.NewFuturesClient(os.Getenv("BINANCE_APIKEY"), os.Getenv("BINANCE_SECRETKEY"))
+
+	// If on prod, use the exchange's account real balance.
+	if tradeSignals {
+		initialBalance = exchange.FetchBalance()
+	}
+
+	acct = account.New(initialBalance)
 }
 
 func main() {
@@ -175,7 +201,7 @@ func main() {
 		for sig := range c {
 			log.Warn().Str("sig", sig.String()).Msg("Received CTRL-C. Exiting...")
 			if notifyOnSignals || simulatePositions || len(alerts) >= 1 {
-				bot.SendFinish(symbolPrices)
+				bot.SendFinish(&acct, symbolPrices)
 			}
 			close(c)
 			os.Exit(1)
@@ -207,17 +233,18 @@ func main() {
 	}
 
 	log.Info().
+		Float64("balance", initialBalance).
 		Int("max-positions", maxPositions).
-		Bool("simulate", simulatePositions).
 		Bool("signals", notifyOnSignals).
+		Bool("simulate", simulatePositions).
 		Bool("trade", tradeSignals).
 		Msg("🔌 WebSocket initialised!")
 
 	if notifyOnSignals || simulatePositions || len(alerts) >= 1 {
-		bot.SendInit(interval, maxPositions, simulatePositions, len(symbolIntervalPair))
+		bot.SendInit(initialBalance, interval, maxPositions, simulatePositions)
 	}
 
-	bot.Listen(&netPNL, symbolPrices)
+	bot.Listen(&acct, symbolPrices)
 
 	<-doneC
 }
