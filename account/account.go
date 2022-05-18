@@ -11,11 +11,12 @@ type Account struct {
 	NetPNL           float64              // Net PNL in USDT.
 	PNL              float64              // PNL in percentage.
 	OpenPositions    []*position.Position // Self-explanatory.
+	Real             bool                 // Whether the account trades real capital or not.
 	TotalBalance     float64              // AllocatedBalance + AvailableBalance.
 	Wins             int                  // Counter of winning trades.
 }
 
-func New(initialBalance float64) Account {
+func New(initialBalance float64, real bool) Account {
 	// See github.com/golang/go/wiki/CodeReviewComments#declaring-empty-slices
 	var closedPositions, openPositions []*position.Position
 
@@ -28,7 +29,8 @@ func New(initialBalance float64) Account {
 		NetPNL:           0.0,
 		PNL:              0.0,
 		OpenPositions:    openPositions,
-		TotalBalance:     0.0,
+		Real:             real,
+		TotalBalance:     initialBalance,
 		Wins:             0,
 	}
 }
@@ -46,11 +48,14 @@ func (acct *Account) LogClosedPosition(p *position.Position) {
 	acct.ClosedPositions = append(acct.ClosedPositions, p)
 	acct.NetPNL += p.NetPNL
 
-	if p.NetPNL >= 0 {
+	if p.NetPNL > 0 {
 		acct.Wins += 1
 	} else {
 		acct.Loses += 1
 	}
+
+	// WARNING: this may be wrong since total PNL depends on size. Need to double check math here.
+	acct.PNL += p.PNL
 
 	openPositions := acct.OpenPositions // Used as a shorthand.
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math"
 	"os"
 	"os/signal"
 	"strconv"
@@ -9,7 +10,6 @@ import (
 	"hermes/account"
 	"hermes/analysis"
 	"hermes/exchange"
-	"hermes/order"
 	"hermes/position"
 	"hermes/telegram"
 	"hermes/utils"
@@ -118,6 +118,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 				Float64("AllocatedBalance", acct.AllocatedBalance).
 				Float64("AvailableBalance", acct.AvailableBalance).
 				Float64("NetPNL", acct.NetPNL).
+				Float64("PNL", acct.PNL).
 				Int("Loses", acct.Loses).
 				Int("Wins", acct.Wins).
 				Msg("📄")
@@ -125,10 +126,10 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 	}
 
 	// TODO: first, check if symbol has alert.
-	if triggersAlert, target := a.TriggersAlert(&alerts); triggersAlert {
-		sublogger.Info().Float64("Target", target).Msg("🔔")
+	if triggersAlert, targetPrice := a.TriggersAlert(&alerts); triggersAlert {
+		sublogger.Info().Float64("TargetPrice", targetPrice).Msg("🔔")
 
-		bot.SendAlert(&a, target)
+		bot.SendAlert(&a, targetPrice)
 	}
 
 	if a.TriggersSignal(sentSignals) {
@@ -142,12 +143,14 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			bot.SendSignal(&a)
 		}
 
-		targetSize := acct.TotalBalance / float64(maxPositions)
+		// NOTE: to be safer, may want to factor in unrealized PNL ([TotalBalance+uPNL] / maxPositions)
+		// Round size to 2 digits
+		targetSize := math.Floor((acct.TotalBalance/float64(maxPositions))*100) / 100
 		hasAvailableBalance := acct.AvailableBalance >= targetSize
 		hasFreeSlot := len(openPositions) < maxPositions
 
 		if tradeSignals {
-			order.New(futuresClient, log, &a)
+			exchange.NewOrder(futuresClient, log, &a)
 		}
 
 		if !hasPositionWithSymbol && hasAvailableBalance && hasFreeSlot && simulatePositions {
@@ -166,7 +169,12 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 				Str("Symbol", p.Symbol).
 				Float64("SL", p.SL).
 				Float64("TP", p.TP).
-				Msg("Opened position")
+				Msg("💡")
+
+			log.Info().
+				Float64("AllocatedBalance", acct.AllocatedBalance).
+				Float64("AvailableBalance", acct.AvailableBalance).
+				Msg("📄")
 		}
 
 		sentSignals[a.Symbol] = a.Side
@@ -187,7 +195,7 @@ func init() {
 		initialBalance = exchange.FetchBalance()
 	}
 
-	acct = account.New(initialBalance)
+	acct = account.New(initialBalance, !simulatePositions)
 }
 
 func main() {
@@ -208,7 +216,7 @@ func main() {
 		}
 	}()
 
-	log.Info().Str("interval", interval).Msg("💡 Fetching symbols...")
+	log.Info().Str("interval", interval).Msg("📡 Fetching symbols...")
 
 	symbolIntervalPair := exchange.FetchAssets(
 		futuresClient, interval, LIMIT, &log, symbolAssets, symbolCloses, &wg,
