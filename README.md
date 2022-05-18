@@ -15,8 +15,9 @@ Hermes is a cryptocurrency scanner with trading bot capabilities (Binance USD-M 
   - simulated while keeping track of PNL (net and unrealized)
 
 ## Telegram bot commands
-- `/briefing`: Get a breakdown of the open positions.
-- `/pnl`: Get the portfolio’s net PNL (closed positions).
+- `/account`: Get a breakdown of the trading account.
+- `/pnl`: Get the account's net PNL (closed positions).
+- `/positions`: Get a briefing of the open positions.
 - `/upnl`: Get the current unrealized PNL (open positions).
 
 ## Usage
@@ -28,13 +29,13 @@ Hermes is a cryptocurrency scanner with trading bot capabilities (Binance USD-M 
 ```bash
 $ go run main.go -help
   -interval string
-      interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 4h, 1d
+      interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 1d
   -max-positions int
-    	maximum positions to open (default 10)
+    	maximum positions to open (default=5)
   -signals
-    	send signal alerts on Telegram
+    	send signal alerts on Telegram (default=false)
   -simulate
-    	simulate opening trades when signals are triggered
+    	simulate opening trades when signals are triggered (default=true)
   -trade
-    	trade signals on Binance USD-M account
+    	trade signals on Binance USD-M account (default=false)
 ```

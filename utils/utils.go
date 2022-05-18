@@ -48,7 +48,7 @@ func ParseFlags(log zerolog.Logger) (float64, string, int, bool, bool, bool) {
 	interval := flag.String("interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 1d")
 	maxPositions := flag.Int("max-positions", 5, "maximum positions to open")
 	notifyOnSignals := flag.Bool("signals", false, "send signal alerts on Telegram")
-	simulateTrades := flag.Bool("simulate", false, "simulate opening trades when signals are triggered")
+	simulateTrades := flag.Bool("simulate", true, "simulate opening trades when signals are triggered")
 	tradeSignals := flag.Bool("trade", false, "trade signals on Binance USD-M account")
 
 	flag.Parse()
