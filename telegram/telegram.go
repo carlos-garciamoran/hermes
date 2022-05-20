@@ -20,15 +20,20 @@ type Bot struct {
 
 var chatID int64
 
-func New(log *zerolog.Logger) Bot {
-	bot, err := tgbotapi.NewBotAPI(os.Getenv("TELEGRAM_APITOKEN"))
+func New(log *zerolog.Logger, onDev bool) Bot {
+	prefix := "PROD_"
+	if onDev {
+		prefix = "DEV_"
+	}
+
+	bot, err := tgbotapi.NewBotAPI(os.Getenv(prefix + "TELEGRAM_APITOKEN"))
 	if err != nil {
 		log.Fatal().Str("err", err.Error()).Msg("Crashed creating Telegram bot")
 	}
 
-	chatID, err = strconv.ParseInt(os.Getenv("TELEGRAM_CHATID"), 10, 64)
+	chatID, err = strconv.ParseInt(os.Getenv(prefix+"TELEGRAM_CHATID"), 10, 64)
 	if err != nil {
-		log.Fatal().Str("err", err.Error()).Msg("Crashed parsing TELEGRAM_CHATID")
+		log.Fatal().Str("err", err.Error()).Msg("Crashed parsing " + prefix + "TELEGRAM_CHATID")
 	}
 
 	return Bot{bot, log}
@@ -175,8 +180,8 @@ func (bot *Bot) SendClosedPosition(p *position.Position) {
 // TODO: report account info (extract content from reportAccount)
 func (bot *Bot) SendFinish(acct *account.Account, symbolPrices map[string]float64) {
 	bot.SendMessage(fmt.Sprintf("‼️ *SESSION TERMINATED* ‼️\n\n"+
-		"%s\n"+
-		"%s",
+		"    %s\n"+
+		"    %s",
 		buildNetPNLReport(acct),
 		buildUnrealPNLReport(acct, symbolPrices),
 	))
@@ -227,7 +232,7 @@ func (bot *Bot) reportOpenPositions(acct *account.Account, symbolPrices map[stri
 			unrealizedPNL, rawPNL := pnlPair[0], pnlPair[1]
 
 			content += fmt.Sprintf(
-				"%s %s: *$%.2f* (%.2f%%)\n",
+				"    %s %s: *$%.2f* (%.2f%%)\n",
 				GetPNLEmoji(unrealizedPNL), symbol, unrealizedPNL, rawPNL,
 			)
 		}

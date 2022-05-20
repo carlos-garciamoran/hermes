@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 
 	"hermes/account"
@@ -25,7 +27,7 @@ const LIMIT int = 200
 var initialBalance float64
 var interval string
 var maxPositions int
-var notifyOnSignals, simulatePositions, tradeSignals bool
+var notifyOnSignals, simulatePositions, onDev, tradeSignals bool
 
 var acct account.Account
 var alerts []utils.Alert
@@ -183,11 +185,11 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 }
 
 func init() {
-	initialBalance, interval, maxPositions, notifyOnSignals, simulatePositions, tradeSignals = utils.ParseFlags(log)
+	initialBalance, interval, maxPositions, notifyOnSignals, simulatePositions, onDev, tradeSignals = utils.ParseFlags(log)
 
 	utils.LoadEnvFile(log)
 
-	bot = telegram.New(&log)
+	bot = telegram.New(&log, onDev)
 
 	futuresClient = binance.NewFuturesClient(os.Getenv("BINANCE_APIKEY"), os.Getenv("BINANCE_SECRETKEY"))
 
@@ -202,18 +204,28 @@ func init() {
 func main() {
 	var wg sync.WaitGroup
 
-	// Handle CTRL-C.
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, os.Interrupt) // Listen for and handle CTRL-C.
 
 	go func() {
 		for sig := range c {
-			log.Warn().Str("sig", sig.String()).Msg("Received CTRL-C. Exiting...")
-			if notifyOnSignals || simulatePositions || len(alerts) >= 1 {
-				bot.SendFinish(&acct, symbolPrices)
+			var wantsToExit string
+
+			fmt.Print("Are you sure you want to exit? (y/N) ")
+			fmt.Scanln(&wantsToExit)
+
+			wantsToExit = strings.ToUpper(wantsToExit)
+
+			if wantsToExit == "Y" || wantsToExit == "YES" {
+				log.Warn().Str("sig", sig.String()).Msg("Received CTRL-C. Exiting...")
+
+				if notifyOnSignals || simulatePositions || len(alerts) >= 1 {
+					bot.SendFinish(&acct, symbolPrices)
+				}
+
+				close(c)
+				os.Exit(1)
 			}
-			close(c)
-			os.Exit(1)
 		}
 	}()
 
@@ -231,20 +243,21 @@ func main() {
 	log.Info().Int("count", len(alerts)).Msg("⚙️  Loaded alerts")
 
 	errHandler := func(err error) {
-		msg := "WebSocket stream crashed 🧨"
+		msg := "💥 WebSocket stream crashed"
 		bot.SendMessage(msg)
 		log.Fatal().Str("err", err.Error()).Msg(msg)
 	}
 
 	doneC, _, err := futures.WsCombinedKlineServe(symbolIntervalPair, wsKlineHandler, errHandler)
 	if err != nil {
-		log.Fatal().Str("err", err.Error()).Msg("Crashed calling WsCombinedKlineServe")
+		log.Fatal().Str("err", err.Error()).Msg("💥 Crashed on futures.WsCombinedKlineServe")
 	}
 
 	log.Info().
 		Float64("balance", initialBalance).
 		Int("max-positions", maxPositions).
 		Bool("signals", notifyOnSignals).
+		Bool("onDev", onDev).
 		Bool("simulate", simulatePositions).
 		Bool("trade", tradeSignals).
 		Msg("🔌 WebSocket initialised!")

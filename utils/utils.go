@@ -43,12 +43,13 @@ func InitLogging() zerolog.Logger {
 	return zerolog.New(io.MultiWriter(consoleOutput, logFile)).With().Timestamp().Logger()
 }
 
-func ParseFlags(log zerolog.Logger) (float64, string, int, bool, bool, bool) {
-	balance := flag.Float64("balance", 100, "initial balance to simulate trading (ignored when trade=true)")
+func ParseFlags(log zerolog.Logger) (float64, string, int, bool, bool, bool, bool) {
+	balance := flag.Float64("balance", 1000, "initial balance to simulate trading (ignored when trade=true)")
 	interval := flag.String("interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 1d")
 	maxPositions := flag.Int("max-positions", 5, "maximum positions to open")
 	notifyOnSignals := flag.Bool("signals", false, "send signal alerts on Telegram")
 	simulateTrades := flag.Bool("simulate", true, "simulate opening trades when signals are triggered")
+	onDev := flag.Bool("dev", true, "send alerts to development bot (DEV_TELEGRAM_* in .env)")
 	tradeSignals := flag.Bool("trade", false, "trade signals on Binance USD-M account")
 
 	flag.Parse()
@@ -66,7 +67,7 @@ func ParseFlags(log zerolog.Logger) (float64, string, int, bool, bool, bool) {
 		os.Exit(2)
 	}
 
-	return *balance, *interval, *maxPositions, *notifyOnSignals, *simulateTrades, *tradeSignals
+	return *balance, *interval, *maxPositions, *notifyOnSignals, *simulateTrades, *onDev, *tradeSignals
 }
 
 func LoadAlerts(log zerolog.Logger, interval string, validSymbols map[string]string) ([]Alert, []string) {
