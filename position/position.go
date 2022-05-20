@@ -14,8 +14,8 @@ type Position struct {
 	EntrySignal string  // "EMA Cross", "RSI". May be expanded in the future.
 	ExitPrice   float64 // Price returned by the exchange (USDT)
 	ExitSignal  string  // "SL", "TP". May be an indicator in the future.
-	NetPNL      float64 // Unrealized (USDT)
-	PNL         float64 // Unrealized (percentage)
+	NetPNL      float64 // Net profit and loss (USDT)
+	PNL         float64 // Net profit and loss (percentage)
 	Side        string  // One of [analysis.BUY, analysis.SELL]
 	Size        float64 // (USDT)
 	Symbol      string  // Name of the position's asset.
@@ -31,7 +31,7 @@ func New(a *analysis.Analysis, size float64) *Position {
 
 	p := &Position{
 		EntryPrice:  price,
-		EntrySignal: a.EMA_Cross + " EMA cross",
+		EntrySignal: a.EMACross + " EMA cross",
 		ExitPrice:   0,
 		ExitSignal:  "",
 		NetPNL:      0,

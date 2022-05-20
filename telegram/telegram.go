@@ -69,7 +69,7 @@ func (bot *Bot) Listen(acct *account.Account, symbolPrices map[string]float64) {
 		case "account":
 			bot.reportAccount(acct, update)
 		case "pnl":
-			bot.reportNetPNL(acct.NetPNL, update)
+			bot.reportNetPNL(acct, update)
 		case "positions":
 			bot.reportOpenPositions(acct, symbolPrices, update)
 		case "upnl":
@@ -90,7 +90,6 @@ func (bot *Bot) SendMessage(text string) {
 	// NOTE: may want to continue running instead of doing os.Exit()
 	// TODO: handle err="Too Many Requests: retry after 39" without exiting
 	if _, err := bot.Send(message); err != nil {
-		fmt.Println(err)
 		bot.Fatal().
 			Str("err", err.Error()).
 			Str("text", text).
@@ -101,7 +100,7 @@ func (bot *Bot) SendMessage(text string) {
 func (bot *Bot) SendInit(initialBalance float64, interval string, maxPositions int, simulatePositions bool) {
 	bot.SendMessage(fmt.Sprintf(
 		"🍾 *NEW SESSION STARTED* 🍾\n\n"+
-			"    💰 initial balance: >*%.2f*<\n"+
+			"    💰 initial balance: >*$%.2f*<\n"+
 			"    ⏱ interval: >*%s*<\n"+
 			"    🔝 max positions: >*%d*<\n"+
 			"    📟 simulate: >*%t*<\n",
@@ -123,12 +122,12 @@ func (bot *Bot) SendAlert(a *analysis.Analysis, target float64) {
 func (bot *Bot) SendSignal(a *analysis.Analysis) {
 	text := fmt.Sprintf("⚡️ %s", a.Asset.BaseAsset)
 
-	if a.EMA_Cross != "NA" {
-		text += fmt.Sprintf(" | _%s 5/9 EMA cross_ %s", a.EMA_Cross, analysis.Emojis[a.EMA_Cross])
+	if a.EMACross != "NA" {
+		text += fmt.Sprintf(" | _%s 5/9 EMA cross_ %s", a.EMACross, analysis.Emojis[a.EMACross])
 	}
 
-	if a.RSI_Signal != "NA" {
-		text += fmt.Sprintf(" | _RSI %s_ %s", a.RSI_Signal, analysis.Emojis[a.RSI_Signal])
+	if a.RSISignal != "NA" {
+		text += fmt.Sprintf(" | _RSI %s_ %s", a.RSISignal, analysis.Emojis[a.RSISignal])
 	}
 
 	// TODO: set float precision based on p.Asset.PricePrecision
@@ -147,10 +146,12 @@ func (bot *Bot) SendSignal(a *analysis.Analysis) {
 func (bot *Bot) SendNewPosition(p *position.Position) {
 	bot.SendMessage(fmt.Sprintf("💡 Opened *%s* | %s %s\n\n"+
 		"    🖋 Entry @ %.3f\n"+
+		"    📐 Size: $%.2f\n"+
 		"    🧨 SL: %f (%.2f%%)\n"+
 		"    💎 TP: %f (%.2f%%)",
 		p.Symbol, p.Side, analysis.Emojis[p.Side],
 		p.EntryPrice,
+		p.Size,
 		p.SL, position.SL*100,
 		p.TP, position.TP*100,
 	))
@@ -158,7 +159,7 @@ func (bot *Bot) SendNewPosition(p *position.Position) {
 
 func (bot *Bot) SendClosedPosition(p *position.Position) {
 	pnlEmoji := GetPNLEmoji(p.PNL)
-	exitEmoji := map[string]string{"SL": "🧨", "TP": "💵"}[p.ExitSignal]
+	exitEmoji := map[string]string{"SL": "🧨", "TP": "💎"}[p.ExitSignal]
 
 	bot.SendMessage(fmt.Sprintf("%s Closed *%s* | %s\n\n"+
 		"    🖋 Exit @ %.3f\n"+
@@ -171,14 +172,12 @@ func (bot *Bot) SendClosedPosition(p *position.Position) {
 	))
 }
 
-// TODO: improve formatting
+// TODO: report account info (extract content from reportAccount)
 func (bot *Bot) SendFinish(acct *account.Account, symbolPrices map[string]float64) {
-	netPNL := acct.NetPNL
-
 	bot.SendMessage(fmt.Sprintf("‼️ *SESSION TERMINATED* ‼️\n\n"+
-		"%s Net PNL: *$%.2f*\n"+
+		"%s\n"+
 		"%s",
-		GetPNLEmoji(netPNL), netPNL,
+		buildNetPNLReport(acct),
 		buildUnrealPNLReport(acct, symbolPrices),
 	))
 }
@@ -212,28 +211,24 @@ func (bot *Bot) reportAccount(acct *account.Account, update tgbotapi.Update) {
 	bot.report(content, update)
 }
 
-func (bot *Bot) reportNetPNL(netPNL float64, update tgbotapi.Update) {
-	content := fmt.Sprintf("%s Net PNL: *$%.2f*", GetPNLEmoji(netPNL), netPNL)
-
-	bot.report(content, update)
+func (bot *Bot) reportNetPNL(acct *account.Account, update tgbotapi.Update) {
+	bot.report(buildNetPNLReport(acct), update)
 }
 
 func (bot *Bot) reportOpenPositions(acct *account.Account, symbolPrices map[string]float64, update tgbotapi.Update) {
 	content := "🧘‍♂️ No open positions to report"
-	uPNLs := acct.CalculateOpenPositionsPNLs(symbolPrices)
-	openPositionsCount := len(uPNLs)
+	unrealizedPNLs := acct.CalculateOpenPositionsPNLs(symbolPrices)
+	openPositionsCount := len(unrealizedPNLs)
 
 	if openPositionsCount >= 1 {
-		content = fmt.Sprintf("📄 *Briefing* report (%d open positions) 📄\n\n", openPositionsCount)
+		content = fmt.Sprintf("📄 Got %d open positions\n\n", openPositionsCount)
 
-		for symbol, pnlPair := range uPNLs {
-			netPNL, rawPNL := pnlPair[0], pnlPair[1]
-			emoji := GetPNLEmoji(rawPNL)
+		for symbol, pnlPair := range unrealizedPNLs {
+			unrealizedPNL, rawPNL := pnlPair[0], pnlPair[1]
 
-			content += fmt.Sprintf("*%s* %s\n"+
-				"    💵 Net uPNL: *$%.2f*\n"+
-				"    📐 Raw uPNL: *%.2f%%*\n\n",
-				symbol, emoji, netPNL, rawPNL,
+			content += fmt.Sprintf(
+				"%s %s: *$%.2f* (%.2f%%)\n",
+				GetPNLEmoji(unrealizedPNL), symbol, unrealizedPNL, rawPNL,
 			)
 		}
 	}
@@ -245,13 +240,19 @@ func (bot *Bot) reportUnrealizedPNL(acct *account.Account, symbolPrices map[stri
 	bot.report(buildUnrealPNLReport(acct, symbolPrices), update)
 }
 
-func buildUnrealPNLReport(account *account.Account, symbolPrices map[string]float64) string {
-	totalNetPNL, totalPNL := account.CalculateUnrealizedPNL(symbolPrices)
+func buildNetPNLReport(acct *account.Account) string {
+	return fmt.Sprintf(
+		"%s Net PNL: *$%.2f* (%.2f%%)",
+		GetPNLEmoji(acct.NetPNL), acct.NetPNL, acct.PNL,
+	)
+}
 
-	return fmt.Sprintf("Unreal PNL %s\n\n"+
-		"    💵 Net: *$%.2f*\n"+
-		"    📐 Raw: *%.2f%%*",
-		GetPNLEmoji(totalPNL), totalPNL, totalNetPNL,
+func buildUnrealPNLReport(acct *account.Account, symbolPrices map[string]float64) string {
+	unrealizedPNL, rawPNL := acct.CalculateUnrealizedPNL(symbolPrices)
+
+	return fmt.Sprintf(
+		"%s Unrealized PNL: *$%.2f* (%.2f%%)",
+		GetPNLEmoji(unrealizedPNL), unrealizedPNL, rawPNL,
 	)
 }
 

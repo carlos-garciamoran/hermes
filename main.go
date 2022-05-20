@@ -112,7 +112,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 				Float64("NetPNL", p.NetPNL).
 				Float64("PNL", p.PNL).
 				Int("Slots", maxPositions-len(openPositions)).
-				Msg(telegram.GetPNLEmoji(p.PNL) + " closed position")
+				Msg(telegram.GetPNLEmoji(p.PNL) + " closed")
 
 			log.Info().
 				Float64("AllocatedBalance", acct.AllocatedBalance).
@@ -133,14 +133,14 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 	}
 
 	if a.TriggersSignal(sentSignals) {
-		sublogger.Info().
-			Str("EMA_Cross", a.EMA_Cross).
-			Uint("Signal_Count", a.Signal_Count).
-			Str("Side", a.Side).
-			Msg("⚡")
-
 		if notifyOnSignals {
 			bot.SendSignal(&a)
+
+			sublogger.Info().
+				Str("EMA_Cross", a.EMACross).
+				Uint("Signal_Count", a.SignalCount).
+				Str("Side", a.Side).
+				Msg("⚡")
 		}
 
 		// NOTE: to be safer, may want to factor in unrealized PNL ([TotalBalance+uPNL] / maxPositions)
@@ -174,6 +174,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			log.Info().
 				Float64("AllocatedBalance", acct.AllocatedBalance).
 				Float64("AvailableBalance", acct.AvailableBalance).
+				Float64("TotalBalance", acct.TotalBalance).
 				Msg("📄")
 		}
 

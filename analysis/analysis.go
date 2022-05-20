@@ -18,19 +18,19 @@ type Asset struct {
 }
 
 type Analysis struct {
-	Asset        *Asset
-	EMA_005      []float64 // Array for checking for cross.
-	EMA_009      []float64 // Array for checking for cross.
-	EMA_050      float64   // Latest average for reading the trend.
-	EMA_200      float64   // Latest average for reading the trend.
-	EMA_Cross    string
-	Price        float64
-	RSI          float64 // Rounded to 2 digits.
-	RSI_Signal   string
-	Side         string
-	Signal_Count uint
-	Symbol       string
-	Trend        string // Based on EMA_050, EMA_200, and Price.
+	Asset       *Asset
+	EMA_005     []float64 // Array for checking for cross.
+	EMA_009     []float64 // Array for checking for cross.
+	EMA_050     float64   // Latest average for reading the trend.
+	EMA_200     float64   // Latest average for reading the trend.
+	EMACross    string
+	Price       float64
+	RSI         float64 // Rounded to 2 digits.
+	RSISignal   string
+	Side        string
+	SignalCount uint
+	Symbol      string
+	Trend       string // Based on EMA_050, EMA_200, and Price.
 }
 
 // Constant value for neutral signal (EMA_Cross, EMA_Trend and RSI_Signal).
@@ -76,47 +76,43 @@ const (
 )
 
 var Emojis = map[string]string{
-	BUY:  "🚀",
-	SELL: "⬇️",
-
-	BULLISH:    "🐗",
-	BULLISH_X2: "🐗🐗",
-
-	BEARISH:    "🐻",
-	BEARISH_X2: "🐻🐻",
-
+	BUY:           "🚀",
+	SELL:          "⬇️",
+	BULLISH:       "🐗",
+	BULLISH_X2:    "🐗🐗",
+	BEARISH:       "🐻",
+	BEARISH_X2:    "🐻🐻",
 	OVERBOUGHT:    "📈",
 	OVERBOUGHT_X2: "📈📈",
 	OVERBOUGHT_X3: "📈📈📈",
-
-	OVERSOLD:    "📉",
-	OVERSOLD_X2: "📉📉",
-	OVERSOLD_X3: "📉📉📉",
+	OVERSOLD:      "📉",
+	OVERSOLD_X2:   "📉📉",
+	OVERSOLD_X3:   "📉📉📉",
 }
 
 func New(asset *Asset, closes []float64, lastIndex int) Analysis {
 	a := Analysis{
-		Asset:        asset,
-		EMA_005:      talib.Ema(closes, 5)[lastIndex-2:],
-		EMA_009:      talib.Ema(closes, 9)[lastIndex-2:],
-		EMA_050:      talib.Ema(closes, 50)[lastIndex],
-		EMA_200:      talib.Ema(closes, 200)[lastIndex],
-		EMA_Cross:    NA,
-		Price:        closes[lastIndex],
-		RSI:          math.Round(talib.Rsi(closes, 14)[lastIndex]*100) / 100,
-		Signal_Count: 0,
-		Side:         NA,
-		Symbol:       asset.Symbol,
+		Asset:       asset,
+		EMA_005:     talib.Ema(closes, 5)[lastIndex-2:],
+		EMA_009:     talib.Ema(closes, 9)[lastIndex-2:],
+		EMA_050:     talib.Ema(closes, 50)[lastIndex],
+		EMA_200:     talib.Ema(closes, 200)[lastIndex],
+		EMACross:    NA,
+		Price:       closes[lastIndex],
+		RSI:         math.Round(talib.Rsi(closes, 14)[lastIndex]*100) / 100,
+		SignalCount: 0,
+		Side:        NA,
+		Symbol:      asset.Symbol,
 	}
 
 	a.calculateEMACross()
 
 	a.Trend = a.calculateTrend()
 
-	a.RSI_Signal = a.evaluateRSI()
+	a.RSISignal = a.evaluateRSI()
 
-	if a.RSI_Signal != "NA" {
-		a.Signal_Count += 1
+	if a.RSISignal != "NA" {
+		a.SignalCount += 1
 	}
 
 	a.chooseSide()
@@ -148,7 +144,7 @@ func (a *Analysis) TriggersAlert(alerts *[]utils.Alert) (bool, float64) {
 
 func (a *Analysis) TriggersSignal(sentSignals map[string]string) bool {
 	// Only trade or send alert if there's a signal, a side, and no alert has been sent.
-	if a.Signal_Count >= 1 && a.Side != NA && sentSignals[a.Symbol] != a.Side {
+	if a.SignalCount >= 1 && a.Side != NA && sentSignals[a.Symbol] != a.Side {
 		return true
 	}
 
@@ -175,11 +171,11 @@ func (a *Analysis) calculateEMACross() {
 	if sum%3 != 0 {
 		// Check for the cross on the last candle.
 		if delta[2] == 1 {
-			a.EMA_Cross = BULLISH
-			a.Signal_Count += 1
+			a.EMACross = BULLISH
+			a.SignalCount += 1
 		} else if delta[2] == -1 {
-			a.EMA_Cross = BEARISH
-			a.Signal_Count += 1
+			a.EMACross = BEARISH
+			a.SignalCount += 1
 		}
 	}
 }
@@ -209,10 +205,10 @@ func (a *Analysis) chooseSide() {
 	// NOTE: REMEMBER EMAs are LAGGING INDICATORS: they should be used as CONFIRMATION
 	// NOTE: may want to check RSI for confirmation/discard
 
-	if a.Price < a.EMA_200 && a.EMA_Cross == BULLISH {
+	if a.Price < a.EMA_200 && a.EMACross == BULLISH {
 		// Buy the undervalued asset gaining bullish momentum.
 		a.Side = BUY
-	} else if a.Price > a.EMA_200 && a.EMA_Cross == BEARISH {
+	} else if a.Price > a.EMA_200 && a.EMACross == BEARISH {
 		// Sell the overvalued asset gaining bearish momentum.
 		a.Side = SELL
 	}

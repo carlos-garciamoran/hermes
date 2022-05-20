@@ -6,7 +6,7 @@ type Account struct {
 	AllocatedBalance float64              // Balance locked in positions.
 	AvailableBalance float64              // Balance free to use.
 	ClosedPositions  []*position.Position // Self-explanatory.
-	InitialBalance   float64              // Unchanged.
+	InitialBalance   float64              // Unchanged. Used for reference. NOTE: may want to rename to StartingCapital
 	Loses            int                  // Counter of losing trades.
 	NetPNL           float64              // Net PNL in USDT.
 	PNL              float64              // PNL in percentage.
@@ -69,19 +69,6 @@ func (acct *Account) LogClosedPosition(p *position.Position) {
 	}
 }
 
-func (acct *Account) CalculateUnrealizedPNL(symbolPrices map[string]float64) (float64, float64) {
-	totalNetPNL, totalPNL := 0.0, 0.0
-
-	for _, position := range acct.OpenPositions {
-		pnl := position.CalculatePNL(symbolPrices[position.Symbol])
-
-		totalNetPNL += (pnl * position.Size)
-		totalPNL += pnl
-	}
-
-	return totalNetPNL, totalPNL * 100
-}
-
 func (acct *Account) CalculateOpenPositionsPNLs(symbolPrices map[string]float64) map[string][]float64 {
 	openPositions := acct.OpenPositions
 	pnls := make(map[string][]float64, len(openPositions))
@@ -95,4 +82,18 @@ func (acct *Account) CalculateOpenPositionsPNLs(symbolPrices map[string]float64)
 	}
 
 	return pnls
+}
+
+// TODO: fix percentage calculation (the math is just wrong)
+func (acct *Account) CalculateUnrealizedPNL(symbolPrices map[string]float64) (float64, float64) {
+	unrealizedPNL, totalPNL := 0.0, 0.0
+
+	for _, position := range acct.OpenPositions {
+		pnl := position.CalculatePNL(symbolPrices[position.Symbol])
+
+		unrealizedPNL += (pnl * position.Size)
+		totalPNL += pnl
+	}
+
+	return unrealizedPNL, totalPNL * 100
 }
