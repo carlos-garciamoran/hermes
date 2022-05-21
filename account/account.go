@@ -54,8 +54,7 @@ func (acct *Account) LogClosedPosition(p *position.Position) {
 		acct.Loses += 1
 	}
 
-	// WARNING: this may be wrong since total PNL depends on size. Need to double check math here.
-	acct.PNL += p.PNL
+	acct.PNL += ((acct.TotalBalance - acct.InitialBalance) / acct.TotalBalance) * 100
 
 	openPositions := acct.OpenPositions // Used as a shorthand.
 

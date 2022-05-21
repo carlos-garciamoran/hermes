@@ -1,4 +1,4 @@
-# hermes 💎
+# Hermes 💎
 Hermes is a cryptocurrency scanner with trading bot capabilities (Binance USD-M Futures).
 
 ## Features

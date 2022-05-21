@@ -37,10 +37,12 @@ var futuresClient *futures.Client
 var log zerolog.Logger = utils.InitLogging()
 var openPositions = make(map[string]*position.Position) // Used to easily add/delete open positions.
 var sentSignals = make(map[string]string)               // {"BTCUSDT": "bullish|bearish", ...}
-var symbolAssets = make(map[string]analysis.Asset)      // Maps a symbol's string to its asset
+var symbolAssets = make(map[string]analysis.Asset)      // Symbol-to-asset mapping.
 var symbolCloses = make(map[string][]float64)           // {"BTCUSDT": [40004.75, ...], ...}
 var symbolPrices = make(map[string]float64)             // {"BTCUSDT": 40004.75, ...}
 
+// wsKlineHandler is called on every price update. It parses the passed kline, checks if a position
+// needs to be closed or opened, and if an alert or a signal is triggered.
 func wsKlineHandler(event *futures.WsKlineEvent) {
 	k, symbol := event.Kline, event.Symbol
 
@@ -119,6 +121,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 			log.Info().
 				Float64("AllocatedBalance", acct.AllocatedBalance).
 				Float64("AvailableBalance", acct.AvailableBalance).
+				Float64("TotalBalance", acct.TotalBalance).
 				Float64("NetPNL", acct.NetPNL).
 				Float64("PNL", acct.PNL).
 				Int("Loses", acct.Loses).

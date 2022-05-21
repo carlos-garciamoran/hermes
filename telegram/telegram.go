@@ -72,7 +72,7 @@ func (bot *Bot) Listen(acct *account.Account, symbolPrices map[string]float64) {
 
 		switch message.Command() {
 		case "account":
-			bot.reportAccount(acct, update)
+			bot.reportAccount(acct, symbolPrices, update)
 		case "pnl":
 			bot.reportNetPNL(acct, update)
 		case "positions":
@@ -150,13 +150,11 @@ func (bot *Bot) SendSignal(a *analysis.Analysis) {
 // IMPROVE: set float precision based on p.Asset.PricePrecision
 func (bot *Bot) SendNewPosition(p *position.Position) {
 	bot.SendMessage(fmt.Sprintf("💡 Opened *%s* | %s %s\n\n"+
-		"    🖋 Entry @ %.3f\n"+
-		"    📐 Size: $%.2f\n"+
+		"    🖋 Entry @ %.3f with $%.2f\n"+
 		"    🧨 SL: %f (%.2f%%)\n"+
 		"    💎 TP: %f (%.2f%%)",
 		p.Symbol, p.Side, analysis.Emojis[p.Side],
-		p.EntryPrice,
-		p.Size,
+		p.EntryPrice, p.Size,
 		p.SL, position.SL*100,
 		p.TP, position.TP*100,
 	))
@@ -167,13 +165,13 @@ func (bot *Bot) SendClosedPosition(p *position.Position) {
 	exitEmoji := map[string]string{"SL": "🧨", "TP": "💎"}[p.ExitSignal]
 
 	bot.SendMessage(fmt.Sprintf("%s Closed *%s* | %s\n\n"+
-		"    🖋 Exit @ %.3f\n"+
+		"    🖋 Exit @ %.3f with $%.2f\n"+
 		"    %s *%s* hit\n"+
 		"    💰 PNL: *$%.2f* (%.2f%%)",
 		pnlEmoji, p.Symbol, analysis.Emojis[p.Side],
-		p.ExitPrice,
+		p.ExitPrice, p.Size,
 		exitEmoji, p.ExitSignal,
-		p.NetPNL, p.PNL*100,
+		p.NetPNL, p.PNL,
 	))
 }
 
@@ -197,19 +195,22 @@ func (bot *Bot) report(content string, update tgbotapi.Update) {
 	}
 }
 
-func (bot *Bot) reportAccount(acct *account.Account, update tgbotapi.Update) {
+func (bot *Bot) reportAccount(acct *account.Account, symbolPrices map[string]float64, update tgbotapi.Update) {
 	totalTrades := len(acct.ClosedPositions)
 
 	content := fmt.Sprintf(
 		"🪙 Allocated balance: *$%.2f*\n"+
 			"💰 Available balance: $%.2f\n"+
 			"🖋 Initial balance: $%.2f\n"+
-			"%s Net PNL: *$%.2f* (%.2f%%)\n"+
+			"%s\n"+
+			"%s\n"+
 			"💡 Open positions: %d\n"+
 			"🐸 Losing trades: *%d*/%d\n"+
 			"🎉 Winning trades: *%d*/%d",
 		acct.AllocatedBalance, acct.AvailableBalance, acct.InitialBalance,
-		GetPNLEmoji(acct.NetPNL), acct.NetPNL, acct.PNL*100, len(acct.OpenPositions),
+		buildNetPNLReport(acct),
+		buildUnrealPNLReport(acct, symbolPrices),
+		len(acct.OpenPositions),
 		acct.Loses, totalTrades, acct.Wins, totalTrades,
 	)
 

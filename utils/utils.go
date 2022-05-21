@@ -21,6 +21,7 @@ type Alert struct {
 	Type      string
 }
 
+// InitLogging returns a customized zerolog.Logger instance writing to a .log file and os.Stdout.
 func InitLogging() zerolog.Logger {
 	t := time.Now()
 	fileName := fmt.Sprintf("./session_%d-%02d-%02dT%02d:%02d:%02d.log",
@@ -43,6 +44,7 @@ func InitLogging() zerolog.Logger {
 	return zerolog.New(io.MultiWriter(consoleOutput, logFile)).With().Timestamp().Logger()
 }
 
+// ParseFlags parses the CLI flags, validates the interval passed, and returns pointers to their values.
 func ParseFlags(log zerolog.Logger) (float64, string, int, bool, bool, bool, bool) {
 	balance := flag.Float64("balance", 1000, "initial balance to simulate trading (ignored when trade=true)")
 	interval := flag.String("interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 1d")
@@ -59,6 +61,7 @@ func ParseFlags(log zerolog.Logger) (float64, string, int, bool, bool, bool, boo
 	for _, valid_interval := range validIntervals {
 		if *interval == valid_interval {
 			intervalIsValid = true
+			break
 		}
 	}
 
@@ -70,6 +73,7 @@ func ParseFlags(log zerolog.Logger) (float64, string, int, bool, bool, bool, boo
 	return *balance, *interval, *maxPositions, *notifyOnSignals, *simulateTrades, *onDev, *tradeSignals
 }
 
+// LoadAlerts parses the alerts.json file into a struct of type Alert.
 func LoadAlerts(log zerolog.Logger, interval string, validSymbols map[string]string) ([]Alert, []string) {
 	var alertSymbols []string
 
@@ -94,6 +98,7 @@ func LoadAlerts(log zerolog.Logger, interval string, validSymbols map[string]str
 	return alerts, alertSymbols
 }
 
+// LoadEnvFile makes the variable in the .env file available via os.GetEnv() using godotenv.
 func LoadEnvFile(log zerolog.Logger) {
 	err := godotenv.Load()
 	if err != nil {

@@ -8,13 +8,14 @@ import (
 	"github.com/markcheno/go-talib"
 )
 
+// Defines characteristics of an asset according to the exchange.
 type Asset struct {
-	BaseAsset         string
-	MaxQuantity       float64
-	MinQuantity       float64
-	PricePrecision    int
-	QuantityPrecision int
-	Symbol            string
+	BaseAsset         string  // Base of the asset (e.g., "BTC", "ETH")
+	MaxQuantity       float64 // Maximum quantity allowed to trade.
+	MinQuantity       float64 // Minimum quantity allowed to trade.
+	PricePrecision    int     // Maximum number of decimals allowed in the order's price.
+	QuantityPrecision int     // Maximum number of decimals allowed in the order's quantity.
+	Symbol            string  // Representation of the asset. "<BASE><QUOTE>"
 }
 
 type Analysis struct {
@@ -23,13 +24,13 @@ type Analysis struct {
 	EMA_009     []float64 // Array for checking for cross.
 	EMA_050     float64   // Latest average for reading the trend.
 	EMA_200     float64   // Latest average for reading the trend.
-	EMACross    string
+	EMACross    string    // BULLISH, BULLISH_X2, BEARISH, BEARISH_X2.
 	Price       float64
 	RSI         float64 // Rounded to 2 digits.
-	RSISignal   string
-	Side        string
+	RSISignal   string  // RSI_[HOT|COLD]_L{1,3}.
+	Side        string  // BUY, SELL.
 	SignalCount uint
-	Symbol      string
+	Symbol      string // Could create a pointer to Asset.Symbol to save space (instead of copying).
 	Trend       string // Based on EMA_050, EMA_200, and Price.
 }
 
@@ -66,7 +67,7 @@ const (
 	SELL = "SELL"
 )
 
-// Constant values for EMA_Cross and Trend.
+// Constant values for EMACross and Trend.
 const (
 	BULLISH    = "bullish"
 	BULLISH_X2 = "bullish-X2"
