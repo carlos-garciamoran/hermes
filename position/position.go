@@ -4,7 +4,7 @@ import "hermes/analysis"
 
 // TODO: move to a variable set elsewhere. Do not hardcode!
 const SL float64 = 0.01
-const TP float64 = 0.04
+const TP float64 = 0.03
 
 type Position struct {
 	EntryPrice  float64 // Entry price (USDT). When real, price returned by the exchange.
@@ -20,7 +20,7 @@ type Position struct {
 	TP          float64 // Target take profit (USDT).
 }
 
-// New returns a struct of type Position with all fields initialized.
+// New creates a Position struct with all fields initialized.
 func New(a *analysis.Analysis, size float64) *Position {
 	price := a.Price
 

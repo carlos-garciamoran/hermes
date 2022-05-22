@@ -16,6 +16,7 @@ type Account struct {
 	Wins             int                  // Counter of winning trades.
 }
 
+// New creates an Account struct with all fields initialized.
 func New(initialBalance float64, real bool) Account {
 	// See github.com/golang/go/wiki/CodeReviewComments#declaring-empty-slices
 	var closedPositions, openPositions []*position.Position
@@ -35,12 +36,15 @@ func New(initialBalance float64, real bool) Account {
 	}
 }
 
+// LogNewPosition records allocated and avaible balances and adds the passed position to OpenPositions.
 func (acct *Account) LogNewPosition(p *position.Position) {
 	acct.AllocatedBalance += p.Size
 	acct.AvailableBalance -= p.Size
 	acct.OpenPositions = append(acct.OpenPositions, p)
 }
 
+// LogClosedPosition records balances and PNLs, adds the position passed to ClosedPositions, and
+// removes it from OpenPositions.
 func (acct *Account) LogClosedPosition(p *position.Position) {
 	acct.AllocatedBalance -= p.Size
 	acct.AvailableBalance += (p.Size + p.NetPNL)
@@ -54,7 +58,7 @@ func (acct *Account) LogClosedPosition(p *position.Position) {
 		acct.Loses += 1
 	}
 
-	acct.PNL += ((acct.TotalBalance - acct.InitialBalance) / acct.TotalBalance) * 100
+	acct.PNL = ((acct.TotalBalance - acct.InitialBalance) / acct.TotalBalance) * 100
 
 	openPositions := acct.OpenPositions // Used as a shorthand.
 
@@ -68,31 +72,32 @@ func (acct *Account) LogClosedPosition(p *position.Position) {
 	}
 }
 
+// CalculateOpenPositionsPNLs calculates the P&L (in USDT and percentage) for each open position.
 func (acct *Account) CalculateOpenPositionsPNLs(symbolPrices map[string]float64) map[string][]float64 {
-	openPositions := acct.OpenPositions
-	pnls := make(map[string][]float64, len(openPositions))
+	pnls := make(map[string][]float64, len(acct.OpenPositions))
 
-	for _, position := range openPositions {
-		symbol := position.Symbol
+	for _, p := range acct.OpenPositions {
+		pnl := p.CalculatePNL(symbolPrices[p.Symbol])
 
-		pnl := position.CalculatePNL(symbolPrices[symbol])
-
-		pnls[symbol] = append(pnls[symbol], pnl*position.Size, pnl*100)
+		pnls[p.Symbol] = append(pnls[p.Symbol], pnl*p.Size, pnl*100)
 	}
 
 	return pnls
 }
 
-// TODO: fix percentage calculation (the math is just wrong)
+// CalculateUnrealizedPNL calculates the total unrealized P&L of all open positions, returning
+// the USDT and percentage values.
 func (acct *Account) CalculateUnrealizedPNL(symbolPrices map[string]float64) (float64, float64) {
-	unrealizedPNL, totalPNL := 0.0, 0.0
+	unrealizedPNL := 0.0
 
-	for _, position := range acct.OpenPositions {
-		pnl := position.CalculatePNL(symbolPrices[position.Symbol])
+	for _, p := range acct.OpenPositions {
+		pnl := p.CalculatePNL(symbolPrices[p.Symbol])
 
-		unrealizedPNL += (pnl * position.Size)
-		totalPNL += pnl
+		unrealizedPNL += pnl * p.Size
 	}
 
-	return unrealizedPNL, totalPNL * 100
+	liveBalance := acct.TotalBalance + unrealizedPNL
+	rawPNL := ((liveBalance - acct.InitialBalance) / liveBalance) * 100
+
+	return unrealizedPNL, rawPNL
 }
