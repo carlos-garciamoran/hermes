@@ -8,7 +8,7 @@ import (
 	"github.com/markcheno/go-talib"
 )
 
-// Defines characteristics of a asset according to the exchange.
+// Asset defines the characteristics of an exchange's asset.
 type Asset struct {
 	BaseAsset         string  // Base of the asset (e.g., "BTC", "ETH")
 	MaxQuantity       float64 // Maximum quantity allowed to trade.
@@ -19,10 +19,11 @@ type Asset struct {
 }
 
 type Analysis struct {
-	Asset       *Asset
+	Asset       *Asset    // Asset corresponding to the Symbol.
 	EMA_005     []float64 // Array for checking for cross.
 	EMA_009     []float64 // Array for checking for cross.
 	EMA_050     float64   // Latest average for reading the trend.
+	EMA_100     float64   // Latest average for reading the trend.
 	EMA_200     float64   // Latest average for reading the trend.
 	EMACross    string    // BULLISH, BULLISH_X2, BEARISH, BEARISH_X2.
 	Price       float64   // Price of the asset at the time of analysis.
@@ -34,7 +35,7 @@ type Analysis struct {
 	Trend       string    // Based on EMA_050, EMA_200, and Price.
 }
 
-// Value for neutral signal (EMA_Cross, EMA_Trend and RSI_Signal).
+// Value for neutral signal (EMACross, RSISignal, and Trend).
 const NA = "NA"
 
 // Values for EMACross and Trend.
@@ -95,6 +96,7 @@ func New(asset *Asset, closes []float64, lastIndex int) Analysis {
 		EMA_005:     talib.Ema(closes, 5)[lastIndex-2:],
 		EMA_009:     talib.Ema(closes, 9)[lastIndex-2:],
 		EMA_050:     talib.Ema(closes, 50)[lastIndex],
+		EMA_100:     talib.Ema(closes, 100)[lastIndex],
 		EMA_200:     talib.Ema(closes, 200)[lastIndex],
 		EMACross:    NA,
 		Price:       closes[lastIndex],
@@ -201,13 +203,11 @@ func (a *Analysis) calculateTrend() string {
 // chooseSide sets the Side field based on the Price and EMA_200 relation and the EMACross type.
 func (a *Analysis) chooseSide() {
 	// NOTE: REMEMBER EMAs are LAGGING INDICATORS: they should be used as CONFIRMATION
-	// NOTE: may want to check RSI for confirmation/discard
+	// NOTE: SELL condition is adjusted for bear market.
 
-	if a.Price < a.EMA_200 && a.EMACross == BULLISH {
-		// Buy the undervalued asset gaining bullish momentum.
+	if a.Price < a.EMA_100 && a.EMACross == BULLISH { // Undervalued asset gaining bullish momentum.
 		a.Side = BUY
-	} else if a.Price > a.EMA_200 && a.EMACross == BEARISH {
-		// Sell the overvalued asset gaining bearish momentum.
+	} else if a.Price > a.EMA_050 && a.EMACross == BEARISH { // Overvalued asset gaining bearish momentum.
 		a.Side = SELL
 	}
 }
@@ -226,7 +226,7 @@ func (a *Analysis) evaluateRSI() string {
 	case a.RSI <= RSI_COLD_L2:
 		return OVERSOLD_X2
 	case a.RSI <= RSI_COLD_L1:
-		return OVERSOLD_X2
+		return OVERSOLD
 	}
 
 	return NA

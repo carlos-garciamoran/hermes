@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// NOTE: may want to add named parameters and store *acct as well as symbolPrices.
 type Bot struct {
 	*tgbotapi.BotAPI
 	*zerolog.Logger
@@ -59,7 +60,7 @@ func (bot *Bot) Listen(acct *account.Account, symbolPrices map[string]float64) {
 		if chat.ID != chatID { // Make it private: ignore messages not coming from our chatID.
 			bot.Error().
 				Int64("ID", chat.ID).
-				Str("UserName", chat.UserName).
+				Str("Name", chat.FirstName).
 				Msg("⛔️ Unauthorised access")
 			continue
 		}
@@ -113,13 +114,12 @@ func (bot *Bot) SendInit(initialBalance float64, interval string, maxPositions i
 	))
 }
 
-// IMPROVE: set float precision based on p.Asset.PricePrecision
 func (bot *Bot) SendAlert(a *analysis.Analysis, target float64) {
 	bot.SendMessage(fmt.Sprintf(
-		"🔔 *%s* crossed %.3f\n\n"+
-			"    — Price: *%.3f*\n"+
-			"    — Trend: _%s_ %s\n"+
-			"    — RSI: %.2f",
+		"🔔 *%s* crossed %g\n\n"+
+			"    🖋 Price: *%g*\n"+
+			"    📊 Trend: _%s_ %s\n"+
+			"    💪 RSI: %.2f",
 		a.Asset.BaseAsset, target, a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI,
 	))
 }
@@ -135,11 +135,10 @@ func (bot *Bot) SendSignal(a *analysis.Analysis) {
 		text += fmt.Sprintf(" | _RSI %s_ %s", a.RSISignal, analysis.Emojis[a.RSISignal])
 	}
 
-	// TODO: set float precision based on p.Asset.PricePrecision
 	text += fmt.Sprintf("\n"+
-		"    — Price: %.3f\n"+
-		"    — Trend: _%s_ %s\n"+
-		"    — RSI: %.2f\n\n"+
+		"    🖋 Price: %g\n"+
+		"    📊 Trend: _%s_ %s\n"+
+		"    💪 RSI: %.2f\n\n"+
 		"    🔮 Side: *%s* %s",
 		a.Price, a.Trend, analysis.Emojis[a.Trend], a.RSI, a.Side, analysis.Emojis[a.Side],
 	)
@@ -147,12 +146,11 @@ func (bot *Bot) SendSignal(a *analysis.Analysis) {
 	bot.SendMessage(text)
 }
 
-// IMPROVE: set float precision based on p.Asset.PricePrecision
 func (bot *Bot) SendNewPosition(p *position.Position) {
 	bot.SendMessage(fmt.Sprintf("💡 Opened *%s* | %s %s\n\n"+
-		"    🖋 Entry @ %.3f with $%.2f\n"+
-		"    🧨 SL: %f (%.2f%%)\n"+
-		"    💎 TP: %f (%.2f%%)",
+		"    🖋 Entry @ %g with $%.2f\n"+
+		"    🧨 SL: %g (%.2f%%)\n"+
+		"    💎 TP: %g (%.2f%%)",
 		p.Symbol, p.Side, analysis.Emojis[p.Side],
 		p.EntryPrice, p.Size,
 		p.SL, position.SL*100,
@@ -165,7 +163,7 @@ func (bot *Bot) SendClosedPosition(p *position.Position) {
 	exitEmoji := map[string]string{"SL": "🧨", "TP": "💎"}[p.ExitSignal]
 
 	bot.SendMessage(fmt.Sprintf("%s Closed *%s* | %s\n\n"+
-		"    🖋 Exit @ %.3f with $%.2f\n"+
+		"    🖋 Exit @ %g with $%.2f\n"+
 		"    %s *%s* hit\n"+
 		"    💰 PNL: *$%.2f* (%.2f%%)",
 		pnlEmoji, p.Symbol, analysis.Emojis[p.Side],
