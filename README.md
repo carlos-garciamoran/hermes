@@ -35,13 +35,13 @@ Usage of main:
   -dev
         send alerts to development bot (DEV_TELEGRAM_* in .env) (default true)
   -interval string
-        interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 1d
+        interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 12h, 1d
   -max-positions int
         maximum positions to open (default 5)
+  -positions
+        open positions when signals are triggered (simulated by default) (default true)
+  -real
+        open a real trade for every position on Binance USD-M
   -signals
-        send signal alerts on Telegram
-  -simulate
-        simulate opening trades when signals are triggered (default true)
-  -trade
-        trade signals on Binance USD-M account
+        send alerts on Telegram when a signal is triggered
 ```

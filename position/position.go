@@ -26,10 +26,8 @@ type Position struct {
 }
 
 // New creates a Position struct with all fields initialized.
-func New(a *analysis.Analysis, size float64) *Position {
+func New(a *analysis.Analysis, quantity float64, size float64) *Position {
 	asset, price := a.Asset, a.Price
-
-	quantity := round(size/price, asset.QuantityPrecision)
 
 	sl, tp := calculateSLAndTP(a)
 
@@ -41,7 +39,7 @@ func New(a *analysis.Analysis, size float64) *Position {
 		ExitSignal:  "",
 		NetPNL:      0.0,
 		PNL:         0.0,
-		Quantity:    quantity,
+		Quantity:    round(quantity, asset.QuantityPrecision),
 		Side:        a.Side,
 		Size:        size,
 		Symbol:      a.Symbol,

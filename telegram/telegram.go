@@ -103,14 +103,17 @@ func (bot *Bot) SendMessage(text string) {
 	}
 }
 
-func (bot *Bot) SendInit(initialBalance float64, interval string, maxPositions int, simulatePositions bool) {
+func (bot *Bot) SendInit(
+	initialBalance float64, interval string, maxPositions int, trackPositions bool, isReal bool,
+) {
 	bot.SendMessage(fmt.Sprintf(
 		"🍾 *NEW SESSION STARTED* 🍾\n\n"+
 			"    💰 initial balance: >*$%.2f*<\n"+
 			"    ⏱ interval: >*%s*<\n"+
-			"    🔝 max positions: >*%d*<\n"+
-			"    📟 simulate: >*%t*<\n",
-		initialBalance, interval, maxPositions, simulatePositions,
+			"    🔝 max positions: >%d<\n"+
+			"    📟 track positions: >%t<\n"+
+			"    💳 real trades: >>>*%t*<<<\n",
+		initialBalance, interval, maxPositions, trackPositions, isReal,
 	))
 }
 
@@ -148,9 +151,9 @@ func (bot *Bot) SendSignal(a *analysis.Analysis) {
 
 func (bot *Bot) SendNewPosition(p *position.Position) {
 	bot.SendMessage(fmt.Sprintf("💡 Opened *%s* | %s %s\n\n"+
-		"    🖋 Entry @ %g with $%.2f\n"+
-		"    🧨 SL: %g (%.2f%%)\n"+
-		"    💎 TP: %g (%.2f%%)",
+		"    🖋 Entry @ %g with $%g\n"+
+		"    🧨 SL: %g (%g%%)\n"+
+		"    💎 TP: %g (%g%%)",
 		p.Symbol, p.Side, analysis.Emojis[p.Side],
 		p.EntryPrice, p.Size,
 		p.SL, position.SL*100,
@@ -163,7 +166,7 @@ func (bot *Bot) SendClosedPosition(p *position.Position) {
 	exitEmoji := map[string]string{"SL": "🧨", "TP": "💎"}[p.ExitSignal]
 
 	bot.SendMessage(fmt.Sprintf("%s Closed *%s* | %s\n\n"+
-		"    🖋 Exit @ %g with $%.2f\n"+
+		"    🖋 Exit @ %g with $%g\n"+
 		"    %s *%s* hit\n"+
 		"    💰 PNL: *$%.2f* (%.2f%%)",
 		pnlEmoji, p.Symbol, analysis.Emojis[p.Side],
@@ -263,8 +266,8 @@ func buildUnrealPNLReport(acct *account.Account, symbolPrices map[string]float64
 // TODO: turn function into map (keys being True and False)
 func GetPNLEmoji(pnl float64) string {
 	if pnl >= 0 {
-		return "💸"
+		return "🤑"
 	}
 
-	return "🤬"
+	return "🤔"
 }

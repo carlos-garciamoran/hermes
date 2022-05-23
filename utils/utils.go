@@ -45,19 +45,19 @@ func InitLogging() zerolog.Logger {
 }
 
 // ParseFlags parses the CLI flags, validates the interval passed, and returns pointers to their values.
-func ParseFlags(log zerolog.Logger) (float64, string, int, bool, bool, bool, bool) {
+func ParseFlags(log *zerolog.Logger) (float64, bool, string, int, bool, bool, bool) {
 	balance := flag.Float64("balance", 1000, "initial balance to simulate trading (ignored when trade=true)")
-	interval := flag.String("interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 1d")
+	dev := flag.Bool("dev", true, "send alerts to development bot (DEV_TELEGRAM_* in .env)")
+	interval := flag.String("interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 12h, 1d")
 	maxPositions := flag.Int("max-positions", 5, "maximum positions to open")
-	notifyOnSignals := flag.Bool("signals", false, "send signal alerts on Telegram")
-	simulateTrades := flag.Bool("simulate", true, "simulate opening trades when signals are triggered")
-	onDev := flag.Bool("dev", true, "send alerts to development bot (DEV_TELEGRAM_* in .env)")
-	tradeSignals := flag.Bool("trade", false, "trade signals on Binance USD-M account")
+	trackPositions := flag.Bool("positions", true, "open positions when signals are triggered (simulated by default)")
+	isReal := flag.Bool("real", false, "open a real trade for every position on Binance USD-M")
+	sendSignals := flag.Bool("signals", false, "send alerts on Telegram when a signal is triggered")
 
 	flag.Parse()
 
 	intervalIsValid := false
-	validIntervals := []string{"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"}
+	validIntervals := []string{"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "12h", "1d"}
 	for _, validInterval := range validIntervals {
 		if *interval == validInterval {
 			intervalIsValid = true
@@ -70,11 +70,11 @@ func ParseFlags(log zerolog.Logger) (float64, string, int, bool, bool, bool, boo
 		os.Exit(2)
 	}
 
-	return *balance, *interval, *maxPositions, *notifyOnSignals, *simulateTrades, *onDev, *tradeSignals
+	return *balance, *dev, *interval, *maxPositions, *trackPositions, *isReal, *sendSignals
 }
 
 // LoadAlerts parses the alerts.json file into a struct of type Alert.
-func LoadAlerts(log zerolog.Logger, interval string, validSymbols map[string]string) ([]Alert, []string) {
+func LoadAlerts(log *zerolog.Logger, interval string, validSymbols map[string]string) ([]Alert, []string) {
 	var alertSymbols []string
 
 	dat, err := os.ReadFile("./alerts.json")
@@ -99,7 +99,7 @@ func LoadAlerts(log zerolog.Logger, interval string, validSymbols map[string]str
 }
 
 // LoadEnvFile makes the variable in the .env file available via os.GetEnv() using godotenv.
-func LoadEnvFile(log zerolog.Logger) {
+func LoadEnvFile(log *zerolog.Logger) {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal().Str("err", err.Error()).Msg("Crashed loading .env file")
