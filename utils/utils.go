@@ -58,8 +58,8 @@ func ParseFlags(log zerolog.Logger) (float64, string, int, bool, bool, bool, boo
 
 	intervalIsValid := false
 	validIntervals := []string{"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"}
-	for _, valid_interval := range validIntervals {
-		if *interval == valid_interval {
+	for _, validInterval := range validIntervals {
+		if *interval == validInterval {
 			intervalIsValid = true
 			break
 		}

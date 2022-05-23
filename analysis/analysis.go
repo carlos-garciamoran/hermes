@@ -8,7 +8,7 @@ import (
 	"github.com/markcheno/go-talib"
 )
 
-// Defines characteristics of an asset according to the exchange.
+// Defines characteristics of a asset according to the exchange.
 type Asset struct {
 	BaseAsset         string  // Base of the asset (e.g., "BTC", "ETH")
 	MaxQuantity       float64 // Maximum quantity allowed to trade.
@@ -25,21 +25,27 @@ type Analysis struct {
 	EMA_050     float64   // Latest average for reading the trend.
 	EMA_200     float64   // Latest average for reading the trend.
 	EMACross    string    // BULLISH, BULLISH_X2, BEARISH, BEARISH_X2.
-	Price       float64
-	RSI         float64 // Rounded to 2 digits.
-	RSISignal   string  // RSI_[HOT|COLD]_L{1,3}.
-	Side        string  // BUY, SELL.
-	SignalCount uint
-	Symbol      string // Could create a pointer to Asset.Symbol to save space (instead of copying).
-	Trend       string // Based on EMA_050, EMA_200, and Price.
+	Price       float64   // Price of the asset at the time of analysis.
+	RSI         float64   // Relative Strength Index Rounded to 2 digits.
+	RSISignal   string    // RSI_[HOT|COLD]_L{1,3}.
+	Side        string    // BUY, SELL.
+	SignalCount uint      // Count of trading signals found in the analysis.
+	Symbol      string    // Could create a pointer to Asset.Symbol to save space (instead of copying).
+	Trend       string    // Based on EMA_050, EMA_200, and Price.
 }
 
-// Constant value for neutral signal (EMA_Cross, EMA_Trend and RSI_Signal).
+// Value for neutral signal (EMA_Cross, EMA_Trend and RSI_Signal).
+const NA = "NA"
+
+// Values for EMACross and Trend.
 const (
-	NA = "NA"
+	BULLISH    = "bullish"
+	BULLISH_X2 = "bullish-X2"
+	BEARISH    = "bearish"
+	BEARISH_X2 = "bearish-X2"
 )
 
-// Constant values for RSI triggers.
+// Values for RSI triggers.
 const (
 	RSI_HOT_L1 = 69.9
 	RSI_HOT_L2 = 79.9
@@ -50,32 +56,23 @@ const (
 	RSI_COLD_L3 = 10.1
 )
 
-// Constant values for RSI_Signal.
+// Values for RSISignal.
 const (
 	OVERBOUGHT    = "overbought"
 	OVERBOUGHT_X2 = "overbought-X2"
 	OVERBOUGHT_X3 = "overbought-X3"
-
-	OVERSOLD    = "oversold"
-	OVERSOLD_X2 = "oversold-X2"
-	OVERSOLD_X3 = "oversold-X3"
+	OVERSOLD      = "oversold"
+	OVERSOLD_X2   = "oversold-X2"
+	OVERSOLD_X3   = "oversold-X3"
 )
 
-// Constant values for Side.
+// Values for Side.
 const (
 	BUY  = "BUY"
 	SELL = "SELL"
 )
 
-// Constant values for EMACross and Trend.
-const (
-	BULLISH    = "bullish"
-	BULLISH_X2 = "bullish-X2"
-
-	BEARISH    = "bearish"
-	BEARISH_X2 = "bearish-X2"
-)
-
+// NOTE: may want to move to telegram.go, since that is where this map is used.
 var Emojis = map[string]string{
 	BUY:           "🚀",
 	SELL:          "⬇️",
@@ -91,6 +88,7 @@ var Emojis = map[string]string{
 	OVERSOLD_X3:   "📉📉📉",
 }
 
+// New...
 func New(asset *Asset, closes []float64, lastIndex int) Analysis {
 	a := Analysis{
 		Asset:       asset,
@@ -121,6 +119,7 @@ func New(asset *Asset, closes []float64, lastIndex int) Analysis {
 	return a
 }
 
+// TriggersAlert...
 func (a *Analysis) TriggersAlert(alerts *[]utils.Alert) (bool, float64) {
 	price := a.Price
 
@@ -143,9 +142,9 @@ func (a *Analysis) TriggersAlert(alerts *[]utils.Alert) (bool, float64) {
 	return false, 0
 }
 
-func (a *Analysis) TriggersSignal(sentSignals map[string]string) bool {
-	// Only trade or send alert if there's a signal, a side, and no alert has been sent.
-	if a.SignalCount >= 1 && a.Side != NA && sentSignals[a.Symbol] != a.Side {
+// TriggersSignal returns true if the analysis has found a signal, a side, and no signal has been triggered.
+func (a *Analysis) TriggersSignal(triggeredSignals map[string]string) bool {
+	if a.SignalCount >= 1 && a.Side != NA && triggeredSignals[a.Symbol] != a.Side {
 		return true
 	}
 
@@ -154,6 +153,7 @@ func (a *Analysis) TriggersSignal(sentSignals map[string]string) bool {
 
 // TODO: check for EMA200[x]close cross (reversal signal)
 // TODO: check for EMA cross between 10 & 50
+// calculateEMACross determines if there is a cross of EMAs 5 and 9, and if so, what is its type.
 func (a *Analysis) calculateEMACross() {
 	var delta [3]int
 	sum := 0
@@ -181,27 +181,24 @@ func (a *Analysis) calculateEMACross() {
 	}
 }
 
-// TODO: allow some margin to evaluation (< 0.15% distance to EMA should be neutral)
+// calculateTrend determines the trend based on the Price and its positioning with EMA_050 and EMA_200.
 func (a *Analysis) calculateTrend() string {
-	if a.Price >= a.EMA_050 && a.Price >= a.EMA_200 {
+	// TODO: allow some margin to evaluation (< 0.15% distance to EMA should be neutral)
+	switch {
+	case a.Price >= a.EMA_050 && a.Price >= a.EMA_200:
 		return BULLISH_X2
-	}
-
-	if a.Price >= a.EMA_050 || a.Price >= a.EMA_200 {
+	case a.Price >= a.EMA_050 || a.Price >= a.EMA_200:
 		return BULLISH
-	}
-
-	if a.Price < a.EMA_050 && a.Price < a.EMA_200 {
+	case a.Price < a.EMA_050 && a.Price < a.EMA_200:
 		return BEARISH_X2
-	}
-
-	if a.Price < a.EMA_050 || a.Price < a.EMA_200 {
+	case a.Price < a.EMA_050 || a.Price < a.EMA_200:
 		return BEARISH
 	}
 
 	return NA
 }
 
+// chooseSide sets the Side field based on the Price and EMA_200 relation and the EMACross type.
 func (a *Analysis) chooseSide() {
 	// NOTE: REMEMBER EMAs are LAGGING INDICATORS: they should be used as CONFIRMATION
 	// NOTE: may want to check RSI for confirmation/discard
@@ -215,28 +212,20 @@ func (a *Analysis) chooseSide() {
 	}
 }
 
+// evaluateRSI returns a reading of the RSI (overbought/oversold) based on the defined RSI constants.
 func (a *Analysis) evaluateRSI() string {
-	if a.RSI >= RSI_HOT_L3 {
+	switch {
+	case a.RSI >= RSI_HOT_L3:
 		return OVERBOUGHT_X3
-	}
-
-	if a.RSI >= RSI_HOT_L2 {
+	case a.RSI >= RSI_HOT_L2:
 		return OVERBOUGHT_X2
-	}
-
-	if a.RSI >= RSI_HOT_L1 {
+	case a.RSI >= RSI_HOT_L1:
 		return OVERBOUGHT
-	}
-
-	if a.RSI <= RSI_COLD_L3 {
+	case a.RSI <= RSI_COLD_L3:
 		return OVERSOLD_X3
-	}
-
-	if a.RSI <= RSI_COLD_L2 {
+	case a.RSI <= RSI_COLD_L2:
 		return OVERSOLD_X2
-	}
-
-	if a.RSI <= RSI_COLD_L1 {
+	case a.RSI <= RSI_COLD_L1:
 		return OVERSOLD_X2
 	}
 

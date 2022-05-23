@@ -36,7 +36,7 @@ var bot telegram.Bot
 var futuresClient *futures.Client
 var log zerolog.Logger = utils.InitLogging()
 var openPositions = make(map[string]*position.Position) // Used to easily add/delete open positions.
-var sentSignals = make(map[string]string)               // {"BTCUSDT": "bullish|bearish", ...}
+var triggeredSignals = make(map[string]string)               // {"BTCUSDT": "bullish|bearish", ...}
 var symbolAssets = make(map[string]analysis.Asset)      // Symbol-to-asset mapping.
 var symbolCloses = make(map[string][]float64)           // {"BTCUSDT": [40004.75, ...], ...}
 var symbolPrices = make(map[string]float64)             // {"BTCUSDT": 40004.75, ...}
@@ -137,7 +137,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 		bot.SendAlert(&a, targetPrice)
 	}
 
-	if a.TriggersSignal(sentSignals) {
+	if a.TriggersSignal(triggeredSignals) {
 		if notifyOnSignals {
 			bot.SendSignal(&a)
 
@@ -183,7 +183,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 				Msg("📄")
 		}
 
-		sentSignals[a.Symbol] = a.Side
+		triggeredSignals[a.Symbol] = a.Side
 	}
 }
 
@@ -221,6 +221,15 @@ func main() {
 
 			if wantsToExit == "Y" || wantsToExit == "YES" {
 				log.Warn().Str("sig", sig.String()).Msg("Received CTRL-C. Exiting...")
+				log.Info().
+					Float64("AllocatedBalance", acct.AllocatedBalance).
+					Float64("AvailableBalance", acct.AvailableBalance).
+					Float64("TotalBalance", acct.TotalBalance).
+					Float64("NetPNL", acct.NetPNL).
+					Float64("PNL", acct.PNL).
+					Int("Loses", acct.Loses).
+					Int("Wins", acct.Wins).
+					Msg("📄")
 
 				if notifyOnSignals || simulatePositions || len(alerts) >= 1 {
 					bot.SendFinish(&acct, symbolPrices)
