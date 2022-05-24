@@ -3,11 +3,18 @@ package analysis
 import (
 	"math"
 
-	"hermes/utils"
-
 	"github.com/markcheno/go-talib"
 )
 
+type Alert struct {
+	Condition string
+	Notified  bool
+	Price     float64
+	Symbol    string
+	Type      string
+}
+
+// NOTE: may want to move to exchange.go since an Asset has a stronger relationship with it.
 // Asset defines the characteristics of an exchange's asset.
 type Asset struct {
 	BaseAsset         string  // Base of the asset (e.g., "BTC", "ETH")
@@ -122,7 +129,7 @@ func New(asset *Asset, closes []float64, lastIndex int) Analysis {
 }
 
 // TriggersAlert...
-func (a *Analysis) TriggersAlert(alerts *[]utils.Alert) (bool, float64) {
+func (a *Analysis) TriggersAlert(alerts *[]Alert) (bool, float64) {
 	price := a.Price
 
 	// HACK: use a pre-built symbol map (of alerts) to improve performance: O(1) beats O(n)

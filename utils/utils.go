@@ -9,17 +9,14 @@ import (
 	"strings"
 	"time"
 
+	"hermes/account"
+	"hermes/analysis"
+	"hermes/exchange"
+	"hermes/telegram"
+
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 )
-
-type Alert struct {
-	Condition string
-	Notified  bool
-	Price     float64
-	Symbol    string
-	Type      string
-}
 
 // InitLogging returns a customized zerolog.Logger instance writing to a .log file and os.Stdout.
 func InitLogging() zerolog.Logger {
@@ -49,7 +46,7 @@ func ParseFlags(log *zerolog.Logger) (float64, bool, string, int, bool, bool, bo
 	balance := flag.Float64("balance", 1000, "initial balance to simulate trading (ignored when trade=true)")
 	dev := flag.Bool("dev", true, "send alerts to development bot (DEV_TELEGRAM_* in .env)")
 	interval := flag.String("interval", "", "interval to perform TA: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 12h, 1d")
-	maxPositions := flag.Int("max-positions", 5, "maximum positions to open")
+	maxPositions := flag.Int("max-positions", 4, "maximum positions to open")
 	trackPositions := flag.Bool("positions", true, "open positions when signals are triggered (simulated by default)")
 	isReal := flag.Bool("real", false, "open a real trade for every position on Binance USD-M")
 	sendSignals := flag.Bool("signals", false, "send alerts on Telegram when a signal is triggered")
@@ -74,7 +71,7 @@ func ParseFlags(log *zerolog.Logger) (float64, bool, string, int, bool, bool, bo
 }
 
 // LoadAlerts parses the alerts.json file into a struct of type Alert.
-func LoadAlerts(log *zerolog.Logger, interval string, validSymbols map[string]string) ([]Alert, []string) {
+func LoadAlerts(log *zerolog.Logger, interval string, validSymbols map[string]string) ([]analysis.Alert, []string) {
 	var alertSymbols []string
 
 	dat, err := os.ReadFile("./alerts.json")
@@ -82,7 +79,7 @@ func LoadAlerts(log *zerolog.Logger, interval string, validSymbols map[string]st
 		log.Fatal().Msg(err.Error())
 	}
 
-	alerts := []Alert{}
+	alerts := []analysis.Alert{}
 	json.Unmarshal(dat, &alerts)
 
 	for i, alert := range alerts {
@@ -103,5 +100,44 @@ func LoadEnvFile(log *zerolog.Logger) {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal().Str("err", err.Error()).Msg("Crashed loading .env file")
+	}
+}
+
+func HandleCTRLC(
+	acct *account.Account, bot *telegram.Bot, c chan os.Signal, excg *exchange.Exchange,
+	isReal bool, log *zerolog.Logger, symbolPrices map[string]float64, usesTelegramBot bool,
+) {
+	for sig := range c {
+		var wantsToExit string
+
+		fmt.Print("Are you sure you want to exit? (y/N) ")
+		fmt.Scanln(&wantsToExit)
+
+		wantsToExit = strings.ToUpper(wantsToExit)
+
+		if wantsToExit == "Y" || wantsToExit == "YES" {
+			log.Warn().Str("sig", sig.String()).Msg("Received CTRL-C. Exiting...")
+
+			if isReal {
+				excg.CloseAllPositions(acct.OpenPositions)
+			}
+
+			if usesTelegramBot {
+				bot.SendFinish(acct, symbolPrices)
+			}
+
+			log.Info().
+				Float64("AllocatedBalance", acct.AllocatedBalance).
+				Float64("AvailableBalance", acct.AvailableBalance).
+				Float64("TotalBalance", acct.TotalBalance).
+				Float64("NetPNL", acct.NetPNL).
+				Float64("PNL", acct.PNL).
+				Int("Loses", acct.Loses).
+				Int("Wins", acct.Wins).
+				Msg("📄")
+
+			close(c)
+			os.Exit(1)
+		}
 	}
 }

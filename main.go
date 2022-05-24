@@ -1,12 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"math"
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"sync"
 
 	"hermes/account"
@@ -29,7 +27,7 @@ var maxPositions int
 var onDev, trackPositions, isReal, sendSignals bool
 
 var acct account.Account
-var alerts []utils.Alert
+var alerts []analysis.Alert
 var alertSymbols []string
 var bot telegram.Bot
 var excg exchange.Exchange
@@ -104,6 +102,10 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 		}
 
 		if closed {
+			if isReal {
+				excg.CloseOrder(p)
+			}
+
 			acct.LogClosedPosition(p)
 
 			delete(openPositions, symbol)
@@ -157,7 +159,7 @@ func wsKlineHandler(event *futures.WsKlineEvent) {
 		hasValidQuantity := targetQuantity >= asset.MinQuantity && targetQuantity <= asset.MaxQuantity
 
 		if !hasPositionWithSymbol && hasEnoughBalance && hasAFreeSlot && hasValidQuantity && trackPositions {
-			p := position.New(&a, targetQuantity, targetSize)
+			p := position.New(&a, isReal, targetQuantity, targetSize)
 
 			if isReal {
 				excg.NewOrder(p)
@@ -213,38 +215,13 @@ func init() {
 func main() {
 	var wg sync.WaitGroup
 
+	usesTelegramBot := len(alerts) >= 1 || trackPositions || sendSignals
+
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt) // Listen for and handle CTRL-C.
+	signal.Notify(c, os.Interrupt) // Listen for CTRL-C.
 
 	go func() {
-		for sig := range c {
-			var wantsToExit string
-
-			fmt.Print("Are you sure you want to exit? (y/N) ")
-			fmt.Scanln(&wantsToExit)
-
-			wantsToExit = strings.ToUpper(wantsToExit)
-
-			if wantsToExit == "Y" || wantsToExit == "YES" {
-				log.Warn().Str("sig", sig.String()).Msg("Received CTRL-C. Exiting...")
-				log.Info().
-					Float64("AllocatedBalance", acct.AllocatedBalance).
-					Float64("AvailableBalance", acct.AvailableBalance).
-					Float64("TotalBalance", acct.TotalBalance).
-					Float64("NetPNL", acct.NetPNL).
-					Float64("PNL", acct.PNL).
-					Int("Loses", acct.Loses).
-					Int("Wins", acct.Wins).
-					Msg("📄")
-
-				if sendSignals || trackPositions || len(alerts) >= 1 {
-					bot.SendFinish(&acct, symbolPrices)
-				}
-
-				close(c)
-				os.Exit(1)
-			}
-		}
+		utils.HandleCTRLC(&acct, &bot, c, &excg, isReal, &log, symbolPrices, usesTelegramBot)
 	}()
 
 	log.Info().Str("interval", interval).Msg("📡 Fetching symbols...")
@@ -278,7 +255,7 @@ func main() {
 		Bool("signals", sendSignals).
 		Msg("🔌 WebSocket initialised!")
 
-	if len(alerts) >= 1 || trackPositions || sendSignals {
+	if usesTelegramBot {
 		bot.SendInit(initialBalance, interval, maxPositions, trackPositions, isReal)
 	}
 

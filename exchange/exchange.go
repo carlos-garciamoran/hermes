@@ -2,11 +2,11 @@ package exchange
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"sync"
 
-	"hermes/account"
 	"hermes/analysis"
 	"hermes/position"
 	"hermes/telegram"
@@ -124,10 +124,36 @@ func (e *Exchange) NewOrder(p *position.Position) {
 		e.Fatal().Str("err", err.Error()).Msg("Crashed creating Binance order")
 	}
 
-	e.Info().Int64("OrderID", order.OrderID).Msg("💳 Created order")
+	e.Info().Int64("OrderID", order.OrderID).Msg("💳 Sent order")
 }
 
 // CloseOrder closes the given position in the exchange with a market order.
-func (e *Exchange) CloseOrder(acct *account.Account, p *position.Position) {
-	// WIP
+func (e *Exchange) CloseOrder(p *position.Position) {
+	asset, quantity := p.Asset, p.Quantity
+
+	side := futures.SideTypeSell
+	if p.Side == analysis.SELL {
+		side = futures.SideTypeBuy
+	}
+
+	finalQuantity := strconv.FormatFloat(quantity, 'f', asset.QuantityPrecision, 64)
+
+	// NOTE: API wrapper doesn't store the executed price and quantity (may be slightly off from targets).
+	order, err := e.NewCreateOrderService().
+		Symbol(asset.Symbol).Side(side).Type(futures.OrderTypeMarket).Quantity(finalQuantity).
+		ReduceOnly(true).Do(context.Background())
+	if err != nil {
+		e.Fatal().Str("err", err.Error()).Msg("Crashed creating Binance order")
+	}
+
+	fmt.Println(order)
+
+	e.Info().Int64("OrderID", order.OrderID).Str("Symbol", asset.Symbol).Msg("💳 Sent order")
+}
+
+// CloseAllPositions calls CloseOrder for every open position.
+func (e *Exchange) CloseAllPositions(openPositions []*position.Position) {
+	for _, p := range openPositions {
+		e.CloseOrder(p)
+	}
 }

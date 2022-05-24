@@ -18,6 +18,7 @@ type Position struct {
 	NetPNL      float64         // Net profit and loss (USDT).
 	PNL         float64         // Net profit and loss (percentage).
 	Quantity    float64         // Quantity of the position (in the base asset).
+	Real        bool            // Whether the position has been opened on an exchange as well.
 	Side        string          // analysis.BUY, analysis.SELL.
 	Size        float64         // Size of the position (USDT).
 	Symbol      string          // Name of the position's asset.
@@ -26,7 +27,7 @@ type Position struct {
 }
 
 // New creates a Position struct with all fields initialized.
-func New(a *analysis.Analysis, quantity float64, size float64) *Position {
+func New(a *analysis.Analysis, isReal bool, quantity float64, size float64) *Position {
 	asset, price := a.Asset, a.Price
 
 	sl, tp := calculateSLAndTP(a)
@@ -39,6 +40,7 @@ func New(a *analysis.Analysis, quantity float64, size float64) *Position {
 		ExitSignal:  "",
 		NetPNL:      0.0,
 		PNL:         0.0,
+		Real:        isReal,
 		Quantity:    round(quantity, asset.QuantityPrecision),
 		Side:        a.Side,
 		Size:        size,
