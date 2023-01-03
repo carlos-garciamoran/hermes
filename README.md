@@ -45,3 +45,8 @@ Usage of main:
   -signals
         send alerts on Telegram when a signal is triggered
 ```
+
+## Disclaimer
+This software is for educational purposes only. Do not risk money which you cannot afford to lose.
+
+USE THE SOFTWARE AT YOUR OWN RISK. THE AUTHOR AND ALL AFFILIATES ASSUME NO RESPONSIBILITY FOR YOUR TRADING RESULTS.
